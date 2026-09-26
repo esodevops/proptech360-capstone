@@ -1,0 +1,130 @@
+{
+  "properties.csv": {
+    "rows": 12,
+    "nulls": {
+      "property_id": 0,
+      "property_name": 0,
+      "city": 0
+    },
+    "duplicate_identifiers": 0,
+    "types": {
+      "property_id": "string",
+      "property_name": "string",
+      "city": "string"
+    },
+    "exact_duplicates": 0,
+    "rule_counts": {},
+    "run_id": "2026-09-26T11:36:08.021174+00:00",
+    "input": 12,
+    "accepted": 12,
+    "quarantined": 0
+  },
+  "units.csv": {
+    "rows": 241,
+    "nulls": {
+      "unit_id": 0,
+      "property_id": 0,
+      "floor_area_sqm": 0,
+      "active": 0
+    },
+    "duplicate_identifiers": 1,
+    "types": {
+      "unit_id": "string",
+      "property_id": "string",
+      "floor_area_sqm": "string",
+      "active": "string"
+    },
+    "exact_duplicates": 1,
+    "rule_counts": {
+      "EXACT_DUPLICATE": 1
+    },
+    "run_id": "2026-09-26T11:36:08.021174+00:00",
+    "input": 241,
+    "accepted": 240,
+    "quarantined": 1
+  },
+  "leases.csv": {
+    "rows": 198,
+    "nulls": {
+      "lease_id": 0,
+      "unit_id": 0,
+      "start_date": 0,
+      "end_date": 139,
+      "monthly_rent_usd": 0
+    },
+    "duplicate_identifiers": 0,
+    "types": {
+      "lease_id": "string",
+      "unit_id": "string",
+      "start_date": "string",
+      "end_date": "string",
+      "monthly_rent_usd": "string"
+    },
+    "exact_duplicates": 0,
+    "rule_counts": {},
+    "run_id": "2026-09-26T11:36:08.021174+00:00",
+    "input": 198,
+    "accepted": 198,
+    "quarantined": 0
+  },
+  "work_orders.csv": {
+    "rows": 1501,
+    "nulls": {
+      "work_order_id": 0,
+      "unit_id": 0,
+      "opened_date": 0,
+      "closed_date": 295,
+      "priority": 0,
+      "response_hours": 295,
+      "cost_usd": 0,
+      "status": 0
+    },
+    "duplicate_identifiers": 1,
+    "types": {
+      "work_order_id": "string",
+      "unit_id": "string",
+      "opened_date": "string",
+      "closed_date": "string",
+      "priority": "string",
+      "response_hours": "string",
+      "cost_usd": "string",
+      "status": "string"
+    },
+    "exact_duplicates": 1,
+    "rule_counts": {
+      "UNKNOWN_UNIT": 1,
+      "INVALID_COST_USD": 1,
+      "EXACT_DUPLICATE": 1,
+      "MISSING_RESPONSE_RETAINED": 294
+    },
+    "run_id": "2026-09-26T11:36:08.021174+00:00",
+    "input": 1501,
+    "accepted": 1498,
+    "quarantined": 3
+  },
+  "meter_readings.csv": {
+    "rows": 1440,
+    "nulls": {
+      "reading_id": 0,
+      "unit_id": 0,
+      "reading_month": 0,
+      "energy_kwh": 0
+    },
+    "duplicate_identifiers": 0,
+    "types": {
+      "reading_id": "string",
+      "unit_id": "string",
+      "reading_month": "string",
+      "energy_kwh": "string"
+    },
+    "exact_duplicates": 0,
+    "rule_counts": {
+      "INVALID_ENERGY_KWH": 1,
+      "UNKNOWN_UNIT": 1
+    },
+    "run_id": "2026-09-26T11:36:08.021174+00:00",
+    "input": 1440,
+    "accepted": 1438,
+    "quarantined": 2
+  }
+}

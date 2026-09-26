@@ -2,7 +2,7 @@
 
 import unittest
 import pandas as pd
-from src.quality import validate_and_quarantine
+from src import quality
 
 
 class QualityTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class QualityTests(unittest.TestCase):
         self.data = {name: pd.DataFrame([row], dtype='string') for name, row in rows.items()}
 
     def run_checks(self):
-        return validate_and_quarantine(self.data, 'test-run')
+        return quality.validate_and_quarantine(self.data, 'test-run')
 
     def test_clean_data(self):
         clean, rejected, summary = self.run_checks()

@@ -18,7 +18,7 @@ SLA_HOURS = {"CRITICAL": 4, "HIGH": 12, "MEDIUM": 48, "LOW": 72}
 def clean_dataframe(df):
     """Strip string whitespace and convert date/number columns simple-way."""
     for col in df.columns:
-        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].fillna("").astype(str).str.strip()
 
     # Convert known dates
     for col in [
@@ -29,7 +29,7 @@ def clean_dataframe(df):
         "reading_month",
     ]:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+            df[col] = pd.to_datetime(df[col], format="%Y-%m-%d", errors="coerce")
 
     # Convert known numbers
     for col in [
@@ -45,6 +45,16 @@ def clean_dataframe(df):
     return df
 
 
+def profile_table(df, identifier):
+    """Count missing values and duplicate IDs before cleaning."""
+    missing = df.fillna("").astype(str).apply(lambda column: column.str.strip() == "")
+    return {
+        "rows": len(df), "nulls": missing.sum().to_dict(),
+        "duplicate_identifiers": int(df.duplicated(identifier).sum()),
+        "types": df.dtypes.astype(str).to_dict(),
+    }
+
+
 def check_row_errors(row, name, clean_datasets):
     """Simple list of checks for each row."""
     errors = []
@@ -54,15 +64,24 @@ def check_row_errors(row, name, clean_datasets):
     if pd.isna(row.get(id_col)) or str(row.get(id_col)).strip() == "":
         errors.append("MISSING_ID")
 
+    # Required dates and numbers cannot be missing or invalid.
+    for col in ["start_date", "opened_date", "reading_month"]:
+        if col in row and pd.isna(row[col]):
+            errors.append("INVALID_" + col.upper())
+    for col in ["floor_area_sqm", "monthly_rent_usd", "cost_usd", "energy_kwh", "response_hours"]:
+        if col in row:
+            if col == "response_hours" and pd.isna(row[col]):
+                continue  # A blank response is retained and flagged below.
+            if pd.isna(row[col]) or row[col] < 0 or row[col] == float("inf"):
+                errors.append("INVALID_" + col.upper())
+
     # 2. Foreign Key checks
     if name == "units.csv":
-        valid_props = clean_datasets.get("properties.csv", pd.DataFrame()).get(
-            "property_id", []
-        )
+        valid_props = clean_datasets["properties.csv"]["property_id"]
         if row["property_id"] not in valid_props.values:
             errors.append("UNKNOWN_PROPERTY")
     elif name != "properties.csv" and "unit_id" in row:
-        valid_units = clean_datasets.get("units.csv", pd.DataFrame()).get("unit_id", [])
+        valid_units = clean_datasets["units.csv"]["unit_id"]
         if row["unit_id"] not in valid_units.values:
             errors.append("UNKNOWN_UNIT")
 
@@ -113,25 +132,55 @@ def validate_and_quarantine(datasets, run_id):
         # Track problems per row index
         problems = {i: [] for i in range(len(df))}
 
-        # Mark simple duplicates
-        duplicates = df.duplicated(subset=[id_col], keep=False)
-        for i, is_dup in duplicates.items():
-            if is_dup:
+        # Keep the first exact copy, but reject conflicting rows with the same ID.
+        exact = original.duplicated()
+        duplicates = df.loc[~exact].duplicated(id_col, keep=False)
+        for i in df.index:
+            if exact[i]:
+                problems[i].append("EXACT_DUPLICATE")
+            if duplicates.get(i, False):
                 problems[i].append("DUPLICATE_ID")
 
-        # Run row validation
         for i, row in df.iterrows():
             problems[i].extend(check_row_errors(row, name, clean))
+            for col in ["end_date", "closed_date", "response_hours"]:
+                if col in df:
+                    value = original.loc[i, col]
+                    if pd.notna(value) and str(value).strip() and pd.isna(row[col]):
+                        problems[i].append("INVALID_" + col.upper())
+
+        if name == "meter_readings.csv":
+            readings = df.loc[~exact].copy()
+            readings["reading_month"] = readings["reading_month"].dt.strftime("%Y-%m")
+            repeated = readings.duplicated(["unit_id", "reading_month"], keep=False)
+            for i in readings.index[repeated]:
+                problems[i].append("DUPLICATE_UNIT_MONTH")
+
+        if name == "leases.csv":
+            valid = df.loc[[i for i in df.index if not problems[i]]].copy()
+            # A blank end date means that the lease is still active.
+            valid["end_date"] = valid["end_date"].fillna(pd.Timestamp.max)
+            for _, leases in valid.groupby("unit_id"):
+                for i, a in leases.iterrows():
+                    for j, b in leases.iterrows():
+                        if i < j and a["start_date"] <= b["end_date"] and b["start_date"] <= a["end_date"]:
+                            problems[i].append("OVERLAPPING_LEASE")
+                            problems[j].append("OVERLAPPING_LEASE")
+
+        if name == "work_orders.csv":
+            df["missing_response"] = df["response_hours"].isna()
+            limit = df["priority"].map(SLA_HOURS)
+            df["sla_compliant"] = ((df["status"] == "RESOLVED") & (df["response_hours"] <= limit)).fillna(False)
 
         # Separate clean vs rejected
-        rejected_mask = [len(problems[i]) > 0 for i in range(len(df))]
+        rejected_mask = pd.Series([bool(problems[i]) for i in df.index], dtype=bool)
 
-        clean_df = df[~pd.Series(rejected_mask)].copy()
+        clean_df = df[~rejected_mask].copy()
         quarantine_df = original[rejected_mask].copy()
 
         # Add tracking metadata to quarantine output
         reasons = [
-            ";".join(set(problems[i])) for i in range(len(df)) if rejected_mask[i]
+            ";".join(sorted(set(problems[i]))) for i in range(len(df)) if rejected_mask[i]
         ]
         quarantine_df["reason_code"] = reasons
         quarantine_df["run_id"] = run_id
@@ -141,7 +190,16 @@ def validate_and_quarantine(datasets, run_id):
         quarantine[name] = quarantine_df
 
         # Save simple count metrics
+        rule_counts = {}
+        for errors in problems.values():
+            for reason in set(errors):
+                rule_counts[reason] = rule_counts.get(reason, 0) + 1
+        if name == "work_orders.csv":
+            rule_counts["MISSING_RESPONSE_RETAINED"] = int(clean_df["missing_response"].sum())
         summary[name] = {
+            **profile_table(original, id_col),
+            "exact_duplicates": int(exact.sum()),
+            "rule_counts": rule_counts,
             "run_id": run_id,
             "input": len(df),
             "accepted": len(clean_df),

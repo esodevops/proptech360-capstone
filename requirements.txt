@@ -1,0 +1,2 @@
+# Topic 1: CSV dataframes. Other imports use Python's standard library.
+pandas==2.3.3

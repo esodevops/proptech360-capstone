@@ -1,0 +1,50 @@
+# Python bytecode and virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Python build artifacts and tool caches
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Jupyter temporary files
+.ipynb_checkpoints/
+.ipython/
+
+# Local environment variables and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.aws/
+*.pem
+*.key
+
+# Spark runtime artifacts
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini

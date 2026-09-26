@@ -182,3 +182,67 @@ python -m unittest discover -s tests
 ```
 
 This finds and runs the project tests. It does not edit the raw files.
+
+## Topic 3 — PySpark curated transformations
+
+The Topic 3 notebook cell keeps the starter setup and implements each TODO by
+calling a small function in `src/transform.py`. It reads Topic 2 staging CSVs,
+not raw CSVs. Run Topic 2 first when inputs change.
+
+### What each block does
+
+1. **Load:** explicit schemas tell Spark which columns contain dates and numbers.
+   Missing or duplicate IDs stop the run with a message to rerun Topic 2.
+2. **Calendar:** create six months and their month-end dates.
+3. **Snapshot:** create one row for each active unit and month. Attach the lease
+   active on the last day; no lease means zero occupied units and zero rent.
+   Multiple active leases for one unit-month stop the run rather than guessing
+   which rent to use. Topic 2 already quarantines overlapping leases.
+4. **Aggregate:** calculate occupancy/rent, maintenance, and energy separately.
+   Joining these totals prevents multiple work orders from multiplying rent.
+5. **Join and check:** keep every property for every month, including properties
+   without activity. Check 72 rows, unique property/month keys, and rates from 0 to 1.
+6. **Save:** write Parquet files into month folders. Overwrite replaces the previous
+   output, making reruns safe without appending duplicate records.
+
+### Rate and date policies
+
+- Occupancy uses **active units** as the denominator. Leases ending on the last
+  day count as occupied. Rent is the month-end contractual rent for those units.
+- Maintenance belongs to the month of `opened_date`, even when closed later.
+  All accepted resolved cases are SLA eligible, including missing responses.
+  Missing responses count as noncompliant. Open cases are reported separately.
+- Energy uses **all accepted unit floor area**, including inactive and vacant units.
+  It sums the accepted readings recorded in that month. No readings means zero
+  recorded energy, which does not prove actual consumption was zero.
+- Zero or missing denominators produce null (blank) rates, not divide-by-zero errors.
+  Ratios are fractions: `0.5` means 50%. Non-positive unit areas are rejected in Topic 2.
+- No window ranking is needed: the unit-month check rejects competing leases,
+  so there is no arbitrary “winning” lease to select.
+
+### Run
+
+With your project environment activated:
+
+```bash
+python -m src.transform
+```
+
+This starts Spark locally, builds the KPIs, validates them, and writes
+`data/curated/property_month_kpis/`, partitioned by `month`.
+The standalone run does not require a PostgreSQL driver. The notebook preserves
+your existing driver configuration for later database work.
+
+```bash
+python -m unittest discover -s tests -p 'test_transform.py'
+```
+
+This runs small Spark tests for rent multiplication, month-end occupancy, missing
+SLA responses, unresolved cases, floor area, zero denominators, duplicate IDs,
+and overlapping leases. Use the pinned dependencies in `requirements.txt` and
+a compatible Java installation. Spark needs permission to open local sockets.
+
+Verified with the installed PySpark 4.2.0 and Java 17: the full staging run produced
+72 unique property-month rows across six Parquet partitions. All 17 earlier tests
+and eight Spark tests passed. The Parquet test writes twice and reads the files
+back to verify that overwrite does not duplicate rows.

@@ -66,6 +66,7 @@ def aggregate_kpis(tables, snapshot):
     maintenance = orders.groupBy('property_id', 'month').agg(
         F.sum(F.when(resolved, 1).otherwise(0)).alias('resolved_orders'),
         F.sum(F.when(compliant, 1).otherwise(0)).alias('sla_compliant_orders'),
+        F.sum(F.when(resolved & F.col('response_hours').isNull(), 1).otherwise(0)).alias('missing_response_orders'),
         F.sum(F.when(F.col('status') == 'OPEN', 1).otherwise(0)).alias('open_orders'))
     maintenance = maintenance.withColumn('sla_eligible_orders', F.col('resolved_orders'))
     maintenance = maintenance.withColumn('sla_noncompliant_orders', F.col('resolved_orders') - F.col('sla_compliant_orders'))
@@ -84,7 +85,7 @@ def join_kpis(tables, calendar, occupancy, maintenance, energy, area):
         result = result.join(table, ['property_id', 'month'], 'left')
     result = result.join(area, 'property_id', 'left')
     totals = ['total_units', 'occupied_units', 'earned_monthly_rent_usd', 'resolved_orders',
-              'sla_eligible_orders', 'sla_compliant_orders', 'sla_noncompliant_orders', 'open_orders', 'energy_kwh']
+              'sla_eligible_orders', 'sla_compliant_orders', 'sla_noncompliant_orders', 'missing_response_orders', 'open_orders', 'energy_kwh']
     result = result.fillna(0, subset=totals)
     # A rate is unknown when its denominator is zero or missing.
     for output, numerator, denominator in [

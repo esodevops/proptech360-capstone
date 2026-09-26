@@ -246,3 +246,102 @@ Verified with the installed PySpark 4.2.0 and Java 17: the full staging run prod
 72 unique property-month rows across six Parquet partitions. All 17 earlier tests
 and eight Spark tests passed. The Parquet test writes twice and reads the files
 back to verify that overwrite does not duplicate rows.
+
+## Topic 4 — PostgreSQL dimensional mart and analytics
+
+### Simple workflow
+
+1. **Create the database once:** run `sql/00_database.sql` while connected to the
+   default `postgres` database. Skip this if `proptech360` already exists.
+2. **Set the connection privately:** keep your `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, and
+   `DB_PORT` settings in the project `.env` file, or set `DATABASE_URL`. The loader uses the database name you provide; it does not rename it. Do not save
+   passwords in this repository or notebook outputs.
+3. **Load:** run the loader below. It creates the mart tables, loads dimensions,
+   and inserts or updates the 72 fact rows. It loads twice to check rerun safety.
+4. **Verify:** it compares every stored metric with the curated Spark Parquet and
+   saves the five SQL answers under `evidence/topic4/`.
+
+With your existing project environment activated:
+
+```bash
+python -m pip install -r requirements.txt
+python -m src.load_postgres
+```
+
+The first command installs the PostgreSQL driver and Parquet reader. The second
+loads and verifies the mart. Use the environment variable through your database
+or notebook setup; the code never prints it. Separate `DB_*` settings are passed directly to psycopg, so passwords do not
+need URL encoding. The loader also accepts a `postgresql+psycopg://` URL.
+Settings from the terminal override matching `.env` names; `DATABASE_URL` takes
+priority over separate `DB_*` fields. The file is reread on every connection.
+
+Rerun Topic 3 first if your Parquet lacks `missing_response_orders`. This added
+count records resolved work orders with no response duration, which the Topic 4
+SLA query needs. The current generated Parquet includes it.
+
+### What the files do
+
+| File | Purpose |
+|---|---|
+| `sql/00_database.sql` | Creates `proptech360` once; requires database creation permission. |
+| `sql/01_schema.sql` | Creates dimensions, fact table, constraints, indexes, and dashboard view. |
+| `src/load_postgres.py` | Reads the small curated summary and loads it using parameterized inserts. |
+| `sql/02_load.sql` | Updates existing property-month rows or inserts new ones. |
+| `sql/03_analytics.sql` | Answers the five business questions. |
+| `tests/test_postgres.py` | Checks reload counts, reconciliation, dimensions, and rejected invalid records. |
+
+`dim_property` uses the natural `property_id` as its primary key. `dim_month`
+uses the first day of the month. `fact_property_month` uses both together as
+its primary key and has foreign keys to both dimensions. Surrogate keys are not
+needed for these stable capstone identifiers. Property attributes describe the
+latest state; changing a city updates the property rather than keeping history.
+
+Required counts and amounts cannot be NULL. Counts, money, and energy cannot be
+negative; occupancy and SLA counts cannot exceed their denominators. Rates are
+**generated columns**: PostgreSQL calculates them from the stored totals so they
+cannot disagree. A zero denominator gives NULL. Floor area may be NULL where
+Spark has no known property area. Its rate then stays NULL too.
+
+The primary key creates an index on `(property_id, month)`. Additional indexes
+on `month` and `city` help the monthly and city reports.
+
+### Why staging and upsert are needed
+
+The loader creates a temporary staging table inside one transaction. Values are
+passed separately from SQL using `%s` placeholders. `ON CONFLICT ... DO UPDATE`
+updates existing keys, so loading the same data twice leaves 72 rows. Errors roll
+back the transaction. The temporary table disappears at commit. Upsert does not
+delete old keys; this fixed Jan–Jun capstone stops if the total fact count is not 72.
+
+### Reading the five results
+
+1. Occupancy ranking uses the average of defined monthly rates and displays
+   occupied unit-months, available unit-months, and the number of defined months.
+2. City rent is earned contractual rent, not money collected.
+3. SLA reporting excludes open cases. Missing responses among resolved cases
+   remain **included and noncompliant**, so excluded missing responses is zero.
+4. The portfolio energy benchmark is area-weighted: total kWh divided by total
+   accepted area. It is not the unweighted average of property intensities.
+5. The dashboard also divides summed counts to produce weighted portfolio rates.
+   NULL property rates do not become zero; `AVG` ignores them in query 1. The
+   dashboard calculates rates from totals and returns NULL for zero denominators.
+
+After a successful load, `query_1.txt` through `query_5.txt` contain the actual
+answers; `constraints.txt` lists PostgreSQL schema constraints. The notebook runs
+the same loader under the Topic 4 TODO comments when `.env` or `DATABASE_URL` is configured.
+
+To run database tests against a test `proptech360` database:
+
+```bash
+python -m unittest discover -s tests -p 'test_postgres.py'
+```
+
+These tests load the real curated data twice. Invalid update attempts are rolled
+back. Without database settings, the six database tests explicitly skip.
+
+### Current verification status
+
+The Python files compile and the curated Parquet contains 72 unique rows with
+the new missing-response count. The loader reads the existing `.env` settings,
+but the live connection check did not succeed. PostgreSQL loading, query
+outputs, and reconciliation remain pending a reachable configured database.

@@ -1,0 +1,37 @@
+         table_name                                   constraint_name constraint_type
+          dim_month                            22992_23003_1_not_null           CHECK
+          dim_month                             dim_month_month_check           CHECK
+          dim_month                                    dim_month_pkey     PRIMARY KEY
+       dim_property                            22992_22993_1_not_null           CHECK
+       dim_property                            22992_22993_2_not_null           CHECK
+       dim_property                            22992_22993_3_not_null           CHECK
+       dim_property                           dim_property_city_check           CHECK
+       dim_property                                 dim_property_pkey     PRIMARY KEY
+       dim_property                    dim_property_property_id_check           CHECK
+       dim_property                  dim_property_property_name_check           CHECK
+fact_property_month                           22992_23009_10_not_null           CHECK
+fact_property_month                           22992_23009_11_not_null           CHECK
+fact_property_month                           22992_23009_12_not_null           CHECK
+fact_property_month                            22992_23009_1_not_null           CHECK
+fact_property_month                            22992_23009_2_not_null           CHECK
+fact_property_month                            22992_23009_3_not_null           CHECK
+fact_property_month                            22992_23009_4_not_null           CHECK
+fact_property_month                            22992_23009_5_not_null           CHECK
+fact_property_month                            22992_23009_6_not_null           CHECK
+fact_property_month                            22992_23009_7_not_null           CHECK
+fact_property_month                            22992_23009_8_not_null           CHECK
+fact_property_month                            22992_23009_9_not_null           CHECK
+fact_property_month                         fact_property_month_check           CHECK
+fact_property_month                        fact_property_month_check1           CHECK
+fact_property_month                        fact_property_month_check2           CHECK
+fact_property_month                        fact_property_month_check3           CHECK
+fact_property_month                        fact_property_month_check4           CHECK
+fact_property_month fact_property_month_earned_monthly_rent_usd_check           CHECK
+fact_property_month              fact_property_month_energy_kwh_check           CHECK
+fact_property_month          fact_property_month_floor_area_sqm_check           CHECK
+fact_property_month                    fact_property_month_month_fkey     FOREIGN KEY
+fact_property_month             fact_property_month_open_orders_check           CHECK
+fact_property_month                          fact_property_month_pkey     PRIMARY KEY
+fact_property_month              fact_property_month_property_id_fkey     FOREIGN KEY
+fact_property_month         fact_property_month_resolved_orders_check           CHECK
+fact_property_month             fact_property_month_total_units_check           CHECK

@@ -3,3 +3,10 @@ pandas==2.3.3
 
 # Uses the installed Spark version; requires a compatible Java runtime.
 pyspark==4.2.0
+
+# Topic 4: PostgreSQL connection and reading the curated Parquet summary.
+psycopg[binary]==3.3.6
+pyarrow==25.0.1
+
+# Read private PostgreSQL settings from .env.
+python-dotenv==1.2.3

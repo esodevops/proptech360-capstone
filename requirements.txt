@@ -1,2 +1,5 @@
-# Topic 1: CSV dataframes. Other imports use Python's standard library.
+# Topics 1–2: dataframes; Topic 3: Spark transformations.
 pandas==2.3.3
+
+# Uses the installed Spark version; requires a compatible Java runtime.
+pyspark==4.2.0

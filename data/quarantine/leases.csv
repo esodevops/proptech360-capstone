@@ -1,0 +1,2 @@
+lease_id,unit_id,start_date,end_date,monthly_rent_usd,reason_code,run_id
+L00005,P001-U005,2025-03-16,,975,UNKNOWN_UNIT,2026-09-26T11:21:36.884342+00:00

@@ -8,8 +8,8 @@ and contains data rows. Pandas handles CSV parsing; extra columns are allowed.
 This intake step does not enforce strict field counts or reject duplicate headers.
 
 All values are loaded as strings, including IDs and dates. Empty fields remain
-empty strings. Cleaning, number/date conversion, and business validation belong
-to Topic 2. The intentionally dirty source records are preserved.
+empty strings during ingestion. Topic 2 converts blank fields to missing values
+and handles number/date conversion and business validation. The intentionally dirty source records are preserved.
 
 ### Setup and run
 
@@ -84,3 +84,101 @@ orders, and 1,440 meter readings (including the intentional quality defects).
 `ingest_source()` handles one file. `ingest_all()` repeats that process for the
 five files and saves the manifest. `BytesIO` lets pandas read the same bytes
 used for the fingerprint, so the audit describes exactly what was loaded.
+
+## Topic 2 — Pandas validation, cleaning, and quarantine
+
+Run with your existing Python environment activated:
+
+```bash
+python -m src.quality
+python -m unittest discover -s tests -v
+```
+
+The Topic 2 notebook cell calls the same code. No additional packages are needed.
+`profile_table()` counts nulls (including whitespace-only fields), duplicate IDs,
+and original column types. `validate_and_quarantine()` returns clean tables,
+rejected tables, and a summary. `run_quality()` loads the inputs and saves them.
+
+### Validation policies
+
+| Check | Policy |
+|---|---|
+| Exact duplicate rows | Keep the first copy; quarantine subsequent copies. |
+| Conflicting duplicate IDs | After removing exact copies, quarantine all rows sharing an ID. |
+| Missing IDs, property names, or cities | Quarantine; do not invent values. |
+| Dates | Parse `YYYY-MM-DD`; quarantine invalid nonblank dates and missing required start/opened/reading dates. An empty lease end means open-ended. |
+| Numbers | Convert to numeric; quarantine missing, unparseable, infinite, or negative values. Area must also be greater than zero. |
+| Categories | Require active `0`/`1`, priority CRITICAL/HIGH/MEDIUM/LOW, and status OPEN/RESOLVED. Otherwise quarantine. |
+| Foreign keys | Require accepted properties for units and accepted units for child records. Otherwise quarantine. |
+| Date order | Quarantine leases with start after end and work orders with opened after closed. Resolved orders require a closing date; open orders must not have one. |
+| Lease overlap | Among otherwise valid leases, quarantine every overlapping lease for a unit. End dates are inclusive; an empty end has no limit. |
+| Reading period | Require dates within January–June 2026. |
+| Repeated unit-month | After exact duplicates, quarantine all competing readings in the same calendar month, even with different reading IDs or days. |
+| Missing response hours | Retain and flag with `missing_response=True`; preserve the missing value. `sla_compliant=False`. Nonblank invalid/negative responses are quarantined. |
+
+For SLA reporting, use accepted RESOLVED work orders as the denominator,
+including those missing a response. Count `sla_compliant=True` for the numerator.
+OPEN orders do not enter the denominator. Thresholds are 4, 12, 48, and 72 hours
+for CRITICAL, HIGH, MEDIUM, and LOW respectively.
+
+### Outputs and reconciliation
+
+- `data/staging/`: five accepted CSVs with parsed dates/numbers and SLA flags.
+- `data/quarantine/`: five CSVs containing original field values, semicolon-separated
+  `reason_code` values, and a UTC-based `run_id`. Empty files still have headers.
+- `data/curated/quality_summary.json`: null counts, types, duplicate counts,
+  counts for each rule, and input/accepted/quarantined totals per dataset.
+
+For every table, **input = accepted + quarantined**. Each rejected row is counted
+once, even when it breaks several rules. Exact duplicate copies ARE included in
+quarantined totals. `duplicate_identifiers` counts ID occurrences after the first;
+`exact_duplicates` counts identical copies after the first. These are overlapping
+diagnostic counts, not extra rows to add to reconciliation. Rule counts can also
+overlap. `MISSING_RESPONSE_RETAINED` is a flag count, not a rejection count.
+
+The raw CSVs and supplied DataFrames remain unchanged. Reruns replace the latest
+outputs; they do not append rows. Run IDs change while row results stay the same
+for unchanged inputs. Invalid input files/columns fail in Topic 1 before validation.
+The overlap check uses simple per-unit comparisons suited to this small capstone.
+
+### Short explanation for reviewers
+
+1. **Check:** test each row against clear rules and collect its reasons.
+2. **Split:** keep valid rows; quarantine original invalid rows with explanations.
+3. **Count:** show that every input row is either accepted or quarantined.
+4. **Save:** write staging, quarantine, and summary files without editing raw data.
+
+### Presenting the Topic 2 code
+
+The code works in four steps:
+
+1. **Profile:** `profile_table()` counts missing values and duplicate IDs so we
+   know what arrived.
+2. **Check:** `check_row()` uses `if` statements to add problem names to a list.
+   Dates and numbers are converted first so comparisons work correctly.
+3. **Separate:** `validate_and_quarantine()` puts rows without problems in the
+   clean table. It saves the original rejected rows with their problem names.
+   Parent records are checked first so child records cannot reference rejected parents.
+4. **Save:** `run_quality()` writes separate output files. This protects the raw data
+   and makes running the process again safe.
+
+Blank text becomes missing when dates/numbers are converted. Surrounding spaces
+are removed from working text values because they are formatting differences;
+original rejected values stay unchanged. Missing optional dates and response
+hours are allowed, but nonblank invalid values are rejected. The summary lists
+rules that found problems; an absent rule count means zero failures.
+
+Run the solution in your activated environment:
+
+```bash
+python -m src.quality
+```
+
+This runs the module and saves clean data, quarantine data, and summary counts.
+To check that it behaves correctly:
+
+```bash
+python -m unittest discover -s tests
+```
+
+This finds and runs the project tests. It does not edit the raw files.

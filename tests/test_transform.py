@@ -56,6 +56,7 @@ class TransformationTests(unittest.TestCase):
         self.assertEqual(january.sla_eligible_orders, 2)
         self.assertEqual(january.sla_compliant_orders, 1)
         self.assertEqual(january.sla_noncompliant_orders, 1)
+        self.assertEqual(january.missing_response_orders, 1)
         self.assertEqual(january.open_orders, 1)
         self.assertEqual(january.sla_compliance_rate, 0.5)
         self.assertIsNone(self.output['P1', 2].sla_compliance_rate)

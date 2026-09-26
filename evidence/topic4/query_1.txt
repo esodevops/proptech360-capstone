@@ -1,0 +1,13 @@
+property_id       property_name  occupancy_rank average_monthly_occupancy  occupied_unit_months  available_unit_months  months_with_defined_rate
+       P011 MetroSpace Tower 11               1    0.90000000000000000000                   108                    120                         6
+       P002 MetroSpace Tower 02               2    0.89166666666666666667                   107                    120                         6
+       P008 MetroSpace Tower 08               3    0.86666666666666666667                   104                    120                         6
+       P001 MetroSpace Tower 01               4    0.84166666666666666667                   101                    120                         6
+       P006 MetroSpace Tower 06               5    0.83333333333333333333                   100                    120                         6
+       P003 MetroSpace Tower 03               6    0.80833333333333333333                    97                    120                         6
+       P005 MetroSpace Tower 05               7    0.79166666666666666667                    95                    120                         6
+       P004 MetroSpace Tower 04               8    0.74166666666666666667                    89                    120                         6
+       P009 MetroSpace Tower 09               9    0.73333333333333333333                    88                    120                         6
+       P010 MetroSpace Tower 10              10    0.69166666666666666667                    83                    120                         6
+       P007 MetroSpace Tower 07              11    0.67500000000000000000                    81                    120                         6
+       P012 MetroSpace Tower 12              11    0.67500000000000000000                    81                    120                         6

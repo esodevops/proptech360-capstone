@@ -345,3 +345,33 @@ The Python files compile and the curated Parquet contains 72 unique rows with
 the new missing-response count. The loader reads the existing `.env` settings,
 but the live connection check did not succeed. PostgreSQL loading, query
 outputs, and reconciliation remain pending a reachable configured database.
+
+## Running the notebook workflow as Python modules
+
+The four `src/` files now follow the current notebook's order, names, and checks:
+
+| Module | Notebook structure |
+|---|---|
+| `ingest.py` | Read CSVs, validate columns, save the audit manifest. |
+| `quality.py` | Profile, clean, check each row, quarantine, and reconcile counts. |
+| `transform.py` | Read staging, build the calendar and snapshot, aggregate, join, check, and save. |
+| `load_postgres.py` | Read private settings, define SQL, prepare data, load with psycopg2, validate using Spark JDBC, and export queries. |
+
+Run from the project folder with the virtual environment activated:
+
+```bash
+python -m src.ingest
+python -m src.quality
+python -m src.transform
+python -m src.load_postgres
+```
+
+Each command performs the corresponding notebook topic. Paths are anchored to
+the project folder. Spark commands stop their own session when finished; importing
+a module does not start Spark or connect to PostgreSQL. The PostgreSQL module
+uses the current notebook's `psycopg2-binary` dependency for batch loading and
+its Java driver for Spark reads. Existing callers can still use the public functions.
+
+Verified after this rewrite: 35 tests passed across ingestion, validation,
+configuration, Spark, and PostgreSQL. Database reloads stayed at 72 fact rows,
+and all stored metrics reconciled with the Spark Parquet.

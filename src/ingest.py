@@ -1,13 +1,14 @@
-"""Load the five raw CSV files without changing them."""
-
-import os
+"""Topic 1: read CSV files, validate them, and save an audit manifest."""
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 import pandas as pd
 
-RAW_DIR = os.path.join("data", "raw")
-MANIFEST_PATH = os.path.join("data", "curated", "ingestion_manifest.json")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_DIR = PROJECT_ROOT / 'data/raw'
+CURATED_DIR = PROJECT_ROOT / 'data/curated'
+MANIFEST_PATH = CURATED_DIR / 'ingestion_manifest.json'
 
 EXPECTED_COLUMNS = {
     "properties.csv": ["property_id", "property_name", "city"],
@@ -26,87 +27,54 @@ EXPECTED_COLUMNS = {
     "meter_readings.csv": ["reading_id", "unit_id", "reading_month", "energy_kwh"],
 }
 
-
 def ingest_source(filepath, expected_columns):
-    """Return a DataFrame and audit entry, or raise a descriptive exception."""
-    # Check if file exists
-    if not os.path.isfile(filepath):
-        raise FileNotFoundError("Source file not found: " + str(filepath))
+    filepath = Path(filepath)
+    filename = filepath.name
+    cols = expected_columns
+    if not filepath.exists():
+        raise FileNotFoundError(f"Source file not found: {filepath}")
 
-    filename = os.path.basename(filepath)
-
-    # Read bytes directly for hashing
-    with open(filepath, "rb") as f:
-        source_bytes = f.read()
-
-    # Load CSV using file path directly
     try:
-        dataset = pd.read_csv(
-            filepath,
-            dtype=str,
-            keep_default_na=False,
-            encoding="utf-8-sig",
+        df = pd.read_csv(
+            filepath, dtype=str, keep_default_na=False, encoding="utf-8-sig"
         )
-    except Exception as error:
-        raise ValueError(filename + ": empty file or invalid CSV.") from error
+    except Exception as e:
+        raise ValueError(f"{filename}: empty file or invalid CSV.") from e
 
-    # Validate columns
-    missing = [col for col in expected_columns if col not in dataset.columns]
-    if len(missing) > 0:
+    missing = set(cols) - set(df.columns)
+    if missing:
         raise ValueError(
-            filename + ": missing required columns: " + ", ".join(sorted(missing))
+            f"{filename}: missing required columns: {', '.join(sorted(missing))}"
         )
-
-    # Validate row count
-    if len(dataset) == 0:
-        raise ValueError(filename + ": no data rows found.")
+    if df.empty:
+        raise ValueError(f"{filename}: no data rows found.")
 
     manifest_entry = {
-        "filename": filename,
-        "row_count": len(dataset),
-        "ingest_timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "sha256": hashlib.sha256(source_bytes).hexdigest(),
+        'filename': filename, 'row_count': len(df),
+        'ingest_timestamp_utc': datetime.now(timezone.utc).isoformat(),
+        'sha256': hashlib.sha256(filepath.read_bytes()).hexdigest(),
     }
-    return dataset, manifest_entry
-
+    return df, manifest_entry
 
 def ingest_all(raw_dir=RAW_DIR, manifest_path=MANIFEST_PATH):
-    """Load all sources and replace the manifest after validation succeeds."""
-    # Prevent manifest from being saved inside the raw directory
-    raw_abs = os.path.abspath(raw_dir)
-    manifest_abs = os.path.abspath(manifest_path)
-    if manifest_abs.startswith(raw_abs):
-        raise ValueError("The manifest must be saved outside the raw source directory.")
-
+    raw_dir = Path(raw_dir)
+    manifest_path = Path(manifest_path)
+    if manifest_path.resolve().is_relative_to(raw_dir.resolve()):
+        raise ValueError('The manifest must be saved outside the raw source directory.')
     datasets = {}
     ingestion_manifest = []
-
-    # Ingest each CSV file
-    for filename, columns in EXPECTED_COLUMNS.items():
-        file_path = os.path.join(raw_dir, filename)
-        dataset, entry = ingest_source(file_path, columns)
-        datasets[filename] = dataset
+    for filename, cols in EXPECTED_COLUMNS.items():
+        df, entry = ingest_source(raw_dir / filename, cols)
+        datasets[filename] = df
         ingestion_manifest.append(entry)
-
-    # Ensure curated folder exists
-    manifest_dir = os.path.dirname(manifest_path)
-    if manifest_dir and not os.path.exists(manifest_dir):
-        os.makedirs(manifest_dir)
-
-    # Save manifest output
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(ingestion_manifest, f, indent=2)
-        f.write("\n")
-
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open('w', encoding='utf-8') as file:
+        json.dump(ingestion_manifest, file, indent=2)
+        file.write('\n')
     return datasets, ingestion_manifest
 
 
-if __name__ == "__main__":
-    try:
-        datasets, ingestion_manifest = ingest_all()
-    except Exception as error:
-        raise SystemExit("Ingestion failed: " + str(error)) from error
-
-    for entry in ingestion_manifest:
-        print(entry["filename"] + ": " + str(entry["row_count"]) + " rows")
-    print("Manifest saved to " + MANIFEST_PATH)
+if __name__ == '__main__':
+    datasets, ingestion_manifest = ingest_all()
+    for name, df in datasets.items():
+        print(f'{name}: {len(df)}')

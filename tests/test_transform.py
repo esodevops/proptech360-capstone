@@ -1,4 +1,4 @@
-"""Small Spark examples: rent, occupancy, maintenance, energy, and edge cases."""
+"""Topic 3: calendar, lease snapshot, KPIs, validation, and Parquet output."""
 
 import unittest
 import tempfile
@@ -13,8 +13,14 @@ from src.transform import (SCHEMAS, check_ids, make_calendar, lease_snapshot,
 class TransformationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.spark = SparkSession.builder.master('local[2]').appName('Topic3-tests').config('spark.sql.shuffle.partitions', '2').getOrCreate()
+        # 1. Start Spark once for these small examples.
+        cls.spark = (SparkSession.builder
+                     .master('local[2]')
+                     .appName('Topic3-tests')
+                     .config('spark.sql.shuffle.partitions', '2')
+                     .getOrCreate())
         cls.spark.sparkContext.setLogLevel('ERROR')
+        # 2. Use the same five tables and schemas as the notebook.
         rows = {
             'properties': [('P1', 'Tower', 'Lagos'), ('P2', 'Empty', 'Abuja')],
             'units': [('U1', 'P1', 100.0, 1), ('U2', 'P1', 50.0, 1), ('U3', 'P1', 50.0, 0), ('U4', 'P2', 0.0, 0)],
@@ -27,20 +33,30 @@ class TransformationTests(unittest.TestCase):
             ],
             'meter_readings': [('R1', 'U1', date(2026, 1, 1), 100.0), ('R2', 'U2', date(2026, 1, 1), 50.0)],
         }
-        cls.tables = {name: cls.spark.createDataFrame(data, SCHEMAS[name]) for name, data in rows.items()}
+        cls.tables = {}
+        for name, data in rows.items():
+            cls.tables[name] = cls.spark.createDataFrame(data, SCHEMAS[name])
+
+        # 3. Build the calendar, snapshot, and separate metric totals.
         cls.calendar = make_calendar(cls.spark)
         snapshot = lease_snapshot(cls.tables, cls.calendar)
-        cls.result = join_kpis(cls.tables, cls.calendar, *aggregate_kpis(cls.tables, snapshot)).cache()
+        occupancy, maintenance, energy, area = aggregate_kpis(cls.tables, snapshot)
+        cls.final_kpis_df = join_kpis(
+            cls.tables, cls.calendar, occupancy, maintenance, energy, area
+        ).cache()
         # Collect only this tiny 12-row test result, never production fact tables.
-        cls.output = {(r.property_id, r.month.month): r for r in cls.result.collect()}
+        cls.output = {}
+        for row in cls.final_kpis_df.collect():
+            cls.output[row.property_id, row.month.month] = row
 
     @classmethod
     def tearDownClass(cls):
-        cls.result.unpersist()
+        cls.final_kpis_df.unpersist()
         cls.spark.stop()
 
+    # 4. Check the KPI values and one row per property-month.
     def test_keys_and_rates(self):
-        check_output(self.result, expected_rows=12)
+        check_output(self.final_kpis_df, expected_rows=12)
 
     def test_rent_is_not_multiplied_by_orders(self):
         january = self.output['P1', 1]
@@ -73,11 +89,12 @@ class TransformationTests(unittest.TestCase):
         self.assertIsNone(empty.occupancy_rate)
         self.assertIsNone(empty.energy_intensity_kwh_sqm)
 
+    # 5. Save twice to check that reruns do not append duplicates.
     def test_parquet_reruns_replace_output(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch('src.transform.PROJECT_ROOT', Path(folder)):
-                save_kpis(self.result)
-                save_kpis(self.result)
+                save_kpis(self.final_kpis_df)
+                save_kpis(self.final_kpis_df)
             output = Path(folder) / 'data/curated/property_month_kpis'
             saved = self.spark.read.parquet(str(output))
             self.assertEqual(saved.count(), 12)

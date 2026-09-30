@@ -1,4 +1,4 @@
-"""Run with: python -m unittest discover -s tests -v"""
+"""Topic 1: read CSVs, check columns, record the manifest, and rerun safely."""
 
 import hashlib
 import json
@@ -17,6 +17,7 @@ class IngestionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.path = self.root / 'example.csv'
 
+    # 1. Reject missing files, missing columns, and empty sources.
     def test_missing_file(self):
         with self.assertRaisesRegex(FileNotFoundError, 'Source file not found'):
             ingest_source(self.root / 'nonexistent.csv', {'id'})
@@ -33,13 +34,16 @@ class IngestionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     ingest_source(self.path, {'id'})
 
+    # 2. Preserve source text and record the file hash and row count.
     def test_text_values_and_audit(self):
         content = b'id,name\n001,\n002,"Smith, Alex"\n'
         self.path.write_bytes(content)
         frame, entry = ingest_source(self.path, {'id', 'name'})
         self.assertEqual(frame['id'].tolist(), ['001', '002'])
         self.assertEqual(frame['name'].tolist(), ['', 'Smith, Alex'])
-        self.assertTrue(all(str(dtype) == 'string' for dtype in frame.dtypes))
+        for column in frame:
+            for value in frame[column]:
+                self.assertIsInstance(value, str)
         self.assertEqual(entry['filename'], 'example.csv')
         self.assertEqual(entry['row_count'], 2)
         self.assertEqual(entry['sha256'], hashlib.sha256(content).hexdigest())
@@ -51,9 +55,12 @@ class IngestionTests(unittest.TestCase):
         raw.mkdir()
         for filename, columns in EXPECTED_COLUMNS.items():
             header = sorted(columns)
-            (raw / filename).write_text(','.join(header) + '\n' + ','.join(['001'] * len(header)) + '\n')
+            values = ['001'] * len(header)
+            content = ','.join(header) + '\n' + ','.join(values) + '\n'
+            (raw / filename).write_text(content)
         return raw
 
+    # 3. Save the manifest outside raw data and check repeatable results.
     def test_repeated_runs_preserve_sources(self):
         raw = self.make_sources()
         before = {p.name: p.read_bytes() for p in raw.iterdir()}
@@ -62,7 +69,8 @@ class IngestionTests(unittest.TestCase):
         second_data, second = ingest_all(raw, output)
         self.assertEqual(before, {p.name: p.read_bytes() for p in raw.iterdir()})
         self.assertEqual(len(json.loads(output.read_text())), 5)
-        self.assertEqual([e['sha256'] for e in first], [e['sha256'] for e in second])
+        for first_entry, second_entry in zip(first, second):
+            self.assertEqual(first_entry['sha256'], second_entry['sha256'])
         for name in EXPECTED_COLUMNS:
             self.assertTrue(first_data[name].equals(second_data[name]))
 

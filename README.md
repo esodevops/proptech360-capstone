@@ -1,377 +1,392 @@
-# PropTech 360 capstone
+# PropTech 360 — Property Analytics Pipeline
 
-## Topic 1 — Python ingestion and reproducibility
+PropTech 360 turns property management CSV extracts into monthly reports for occupancy, rent, maintenance service levels, and energy consumption. The project uses Python and Pandas to validate the inputs, PySpark to build curated data, PostgreSQL for a dimensional reporting mart, and AWS for file auditing and Athena queries.
 
-The loader reads the five CSV files in `data/raw/` and returns one pandas
-DataFrame per file. It checks that each file exists, has the required columns,
-and contains data rows. Pandas handles CSV parsing; extra columns are allowed.
-This intake step does not enforce strict field counts or reject duplicate headers.
+The reporting period is **January–June 2026**. The final dataset contains **one row per property per month: 12 properties × 6 months = 72 rows**. All source records are synthetic and include intentional data quality problems.
 
-All values are loaded as strings, including IDs and dates. Empty fields remain
-empty strings during ingestion. Topic 2 converts blank fields to missing values
-and handles number/date conversion and business validation. The intentionally dirty source records are preserved.
+## Main workflow
 
-### Setup and run
+```text
+Five raw CSV files
+        |
+        v
+Python ingestion + file manifest
+        |
+        v
+Pandas validation ------> Quarantine CSVs + rejection reasons
+        |
+        v
+Accepted staging CSVs
+        |
+        v
+PySpark monthly KPIs
+        |
+        v
+Curated Parquet, partitioned by month
+        |                         |
+        v                         v
+PostgreSQL mart               S3 curated/
+        |                         |
+        v                         v
+SQL analytics                Glue Data Catalog --> Athena
 
-From this project folder, create and activate a virtual environment:
+Separate AWS arrival audit:
+S3 raw/ upload --> Lambda --> S3 audit/ JSON + CloudWatch logs
+```
+
+Lambda audits raw file arrivals. Spark performs the transformations locally, and its actual Parquet output is uploaded separately to S3.
+
+## Project files
+
+| Location | Purpose |
+|---|---|
+| `capstone.ipynb` | Main notebook: dataset generation and implementations for the five topics. |
+| `src/ingest.py` | Read the source files and save ingestion metadata. |
+| `src/quality.py` | Profile, validate, clean, quarantine, and reconcile rows. |
+| `src/transform.py` | Build and save monthly property KPIs with Spark. |
+| `src/load_postgres.py` | Load the PostgreSQL mart, verify metrics, and export analytics. |
+| `sql/` | Database creation, schema, upsert, and analytical SQL. |
+| `tests/` | Ingestion, validation, Spark, configuration, and database tests. |
+| `data/raw/` | Original synthetic CSV extracts. |
+| `data/staging/` | Accepted records for Spark. |
+| `data/quarantine/` | Rejected records with reasons and run identifiers. |
+| `data/curated/` | Ingestion manifest, quality summary, and monthly Parquet output. |
+| `evidence/` | Evidence organized by topic; see `evidence/README.md` for the folder index. |
+| `aws/lambda_handler.py` | Deployable Lambda handler for auditing raw S3 arrivals. |
+| `.env.example` | Example database configuration without real credentials. |
+| `requirements.txt` | Pinned Python dependencies. |
+
+The notebook contains the implementations within their topic sections. The Python modules follow the same processing stages and provide a command-line alternative. The notebook does not simply call every module.
+
+## Local setup
+
+Use Python, Java, PostgreSQL, and a notebook editor such as VS Code or Jupyter. The local workflow has been exercised with Python 3.14, Java 17, and the pinned PySpark 4.2.0 dependency. Python 3.12 is the notebook's recommended starting point.
+
+From the project root, create and activate an environment, then install the dependencies:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m src.ingest
 ```
 
-Python 3.12 or newer is supported by this code. Topic 1 uses pandas 2.3.3;
-all other imports are from the Python standard library.
+These commands isolate the project's packages and install the versions used by the code. If you already use `venv`, activate that environment instead of creating another.
 
-The output is `data/curated/ingestion_manifest.json`. Each entry records:
-
-- `filename`: the source CSV name.
-- `row_count`: the number of loaded records, excluding the header and blank lines.
-- `ingest_timestamp_utc`: the time the file was ingested, with UTC offset `+00:00`.
-- `sha256`: a fingerprint of the exact source bytes that were loaded.
-
-Running again replaces the manifest instead of appending duplicate entries.
-Timestamps change each run, but unchanged source files have the same hashes,
-row counts, and loaded values. The loader only reads raw files and prevents
-saving the manifest inside the raw directory. All five files must validate
-before the manifest is written; a validation failure keeps the previous manifest.
-
-### Use in Python or the notebook
-
-The Topic 1 cell in `capstone.ipynb` calls the same reusable code. Open the
-notebook from the project root and select a kernel with the requirements installed.
-The command-line workflow above does not require Jupyter.
-
-```python
-from src.ingest import ingest_all
-
-datasets, ingestion_manifest = ingest_all()
-units = datasets['units.csv']
-```
-
-To load a single file, use `ingest_source(path, expected_columns)`. It returns
-`(dataset, manifest_entry)`. A missing file raises `FileNotFoundError`; invalid
-CSV structure or missing columns raise `ValueError` with the filename and reason.
-The command-line entry point reports the error and exits with a failure status.
-
-### Run the tests
+Check that Java is available:
 
 ```bash
-python -m unittest discover -s tests -v
+java -version
 ```
 
-The tests create temporary fixtures, so they never modify the project source
-CSVs. They check controlled failure for a nonexistent path, missing columns,
-empty inputs, stable text values, audit metadata, and safe
-repeated runs. They also check that failed validation preserves the previous
-manifest and that the manifest cannot overwrite raw inputs.
+Place **`postgresql-42.7.13.jar`** in the project root. The current Spark startup code checks for this filename, including when running Topic 3. Obtain the driver from the [PostgreSQL JDBC download page](https://jdbc.postgresql.org/download/).
 
-Verified locally with Python 3.14.7 and pandas 2.3.3: all 7 tests passed.
-The Topic 1 notebook cell also ran successfully. Two consecutive ingestion runs
-returned identical data and preserved every raw file's SHA-256 digest.
-The supplied sources contain 12 properties, 241 units, 198 leases, 1,501 work
-orders, and 1,440 meter readings (including the intentional quality defects).
+For notebook execution, select your project environment as the kernel and open `capstone.ipynb` from the project root. If notebook support is missing from the environment:
 
-### Short explanation for reviewers
+```bash
+python -m pip install jupyter ipykernel
+```
 
-1. **Read:** load each CSV as text so IDs and empty values stay unchanged.
-2. **Check:** raise a clear error for missing files, required columns, or data rows.
-3. **Record:** capture the filename, row count, UTC time, and SHA-256 fingerprint.
-4. **Save:** replace the audit manifest only after all five files pass the checks.
+## Prepare the source data
 
-`ingest_source()` handles one file. `ingest_all()` repeats that process for the
-five files and saves the manifest. `BytesIO` lets pandas read the same bytes
-used for the fingerprint, so the audit describes exactly what was loaded.
+Run the notebook's **Generate the synthetic source extracts** section if the five files are not already present. The generator uses a fixed seed; rerunning it replaces the raw CSVs.
+
+| Source | Main identifier | Contents |
+|---|---|---|
+| `properties.csv` | `property_id` | Property name and city. |
+| `units.csv` | `unit_id` | Property relationship, floor area, and active status. |
+| `leases.csv` | `lease_id` | Unit relationship, lease dates, and monthly rent. |
+| `work_orders.csv` | `work_order_id` | Maintenance dates, priority, response time, cost, and status. |
+| `meter_readings.csv` | `reading_id` | Unit, reading month, and energy consumption. |
+
+The processing stages preserve raw data. Intentional defects are handled through quarantine rather than by editing the source files.
+
+## Run the local pipeline
+
+Run the notebook topic cells in order, or use these commands from the project root:
+
+```bash
+python -m src.ingest
+python -m src.quality
+python -m src.transform
+python -m src.load_postgres
+```
+
+| Command | What it does |
+|---|---|
+| `src.ingest` | Reads the five CSVs and records their metadata. |
+| `src.quality` | Runs ingestion, separates accepted and rejected rows, and saves quality counts. |
+| `src.transform` | Reads staging data and writes the 72-row curated dataset. |
+| `src.load_postgres` | Loads and verifies the database, then exports the SQL answers. |
+
+Configure PostgreSQL as described below before running the last command. When inputs change, rerun the stages in order.
+
+## Topic 1 — Python ingestion and reproducibility
+
+The loader checks that each source exists, contains the required columns, and has data rows. It initially reads values as text to preserve identifiers such as leading-zero IDs. Number and date conversion happens in Topic 2.
+
+`data/curated/ingestion_manifest.json` records the filename, row count, UTC ingestion timestamp, and SHA-256 file hash. The hash identifies the source file's contents.
+
+A successful rerun replaces the manifest. Unchanged sources retain their hashes and row counts; timestamps change. All five sources must pass before a new manifest is saved. The module prevents writing the manifest into the raw directory.
 
 ## Topic 2 — Pandas validation, cleaning, and quarantine
 
-Run with your existing Python environment activated:
+Validation checks parent records before child records so that accepted rows do not reference rejected properties or units.
 
-```bash
-python -m src.quality
-python -m unittest discover -s tests -v
-```
-
-The Topic 2 notebook cell calls the same code. No additional packages are needed.
-`profile_table()` counts nulls (including whitespace-only fields), duplicate IDs,
-and original column types. `validate_and_quarantine()` returns clean tables,
-rejected tables, and a summary. `run_quality()` loads the inputs and saves them.
-
-### Validation policies
-
-| Check | Policy |
+| Rule | Treatment |
 |---|---|
-| Exact duplicate rows | Keep the first copy; quarantine subsequent copies. |
-| Conflicting duplicate IDs | After removing exact copies, quarantine all rows sharing an ID. |
-| Missing IDs, property names, or cities | Quarantine; do not invent values. |
-| Dates | Parse `YYYY-MM-DD`; quarantine invalid nonblank dates and missing required start/opened/reading dates. An empty lease end means open-ended. |
-| Numbers | Convert to numeric; quarantine missing, unparseable, infinite, or negative values. Area must also be greater than zero. |
-| Categories | Require active `0`/`1`, priority CRITICAL/HIGH/MEDIUM/LOW, and status OPEN/RESOLVED. Otherwise quarantine. |
-| Foreign keys | Require accepted properties for units and accepted units for child records. Otherwise quarantine. |
-| Date order | Quarantine leases with start after end and work orders with opened after closed. Resolved orders require a closing date; open orders must not have one. |
-| Lease overlap | Among otherwise valid leases, quarantine every overlapping lease for a unit. End dates are inclusive; an empty end has no limit. |
-| Reading period | Require dates within January–June 2026. |
-| Repeated unit-month | After exact duplicates, quarantine all competing readings in the same calendar month, even with different reading IDs or days. |
-| Missing response hours | Retain and flag with `missing_response=True`; preserve the missing value. `sla_compliant=False`. Nonblank invalid/negative responses are quarantined. |
+| Exact duplicate | Keep the first copy; quarantine additional copies. |
+| Conflicting duplicate identifier | Quarantine every conflicting row after removing exact copies. |
+| Missing required values or invalid numbers/dates | Quarantine with a reason code. |
+| Unknown property or unit | Quarantine the child record. |
+| Negative amounts or energy; zero/negative floor area | Quarantine. |
+| Invalid active flag, priority, or work-order status | Quarantine. |
+| Invalid date order or inconsistent open/closed status | Quarantine. |
+| Overlapping leases for one unit | Quarantine all otherwise-valid leases involved in the overlap. |
+| Repeated unit and calendar month in meter readings | Quarantine competing readings after removing exact copies. |
+| Meter readings outside January–June 2026 | Quarantine. |
+| Missing response hours | Retain, flag as missing, and mark SLA compliance false. |
 
-For SLA reporting, use accepted RESOLVED work orders as the denominator,
-including those missing a response. Count `sla_compliant=True` for the numerator.
-OPEN orders do not enter the denominator. Thresholds are 4, 12, 48, and 72 hours
-for CRITICAL, HIGH, MEDIUM, and LOW respectively.
+Accepted data is saved under `data/staging/`. Rejected rows retain their original values under `data/quarantine/`, with `reason_code` and `run_id`. The quality report is saved to `data/curated/quality_summary.json`.
 
-### Outputs and reconciliation
+For each source:
 
-- `data/staging/`: five accepted CSVs with parsed dates/numbers and SLA flags.
-- `data/quarantine/`: five CSVs containing original field values, semicolon-separated
-  `reason_code` values, and a UTC-based `run_id`. Empty files still have headers.
-- `data/curated/quality_summary.json`: null counts, types, duplicate counts,
-  counts for each rule, and input/accepted/quarantined totals per dataset.
-
-For every table, **input = accepted + quarantined**. Each rejected row is counted
-once, even when it breaks several rules. Exact duplicate copies ARE included in
-quarantined totals. `duplicate_identifiers` counts ID occurrences after the first;
-`exact_duplicates` counts identical copies after the first. These are overlapping
-diagnostic counts, not extra rows to add to reconciliation. Rule counts can also
-overlap. `MISSING_RESPONSE_RETAINED` is a flag count, not a rejection count.
-
-The raw CSVs and supplied DataFrames remain unchanged. Reruns replace the latest
-outputs; they do not append rows. Run IDs change while row results stay the same
-for unchanged inputs. Invalid input files/columns fail in Topic 1 before validation.
-The overlap check uses simple per-unit comparisons suited to this small capstone.
-
-### Short explanation for reviewers
-
-1. **Check:** test each row against clear rules and collect its reasons.
-2. **Split:** keep valid rows; quarantine original invalid rows with explanations.
-3. **Count:** show that every input row is either accepted or quarantined.
-4. **Save:** write staging, quarantine, and summary files without editing raw data.
-
-### Presenting the Topic 2 code
-
-The code works in four steps:
-
-1. **Profile:** `profile_table()` counts missing values and duplicate IDs so we
-   know what arrived.
-2. **Check:** `check_row()` uses `if` statements to add problem names to a list.
-   Dates and numbers are converted first so comparisons work correctly.
-3. **Separate:** `validate_and_quarantine()` puts rows without problems in the
-   clean table. It saves the original rejected rows with their problem names.
-   Parent records are checked first so child records cannot reference rejected parents.
-4. **Save:** `run_quality()` writes separate output files. This protects the raw data
-   and makes running the process again safe.
-
-Blank text becomes missing when dates/numbers are converted. Surrounding spaces
-are removed from working text values because they are formatting differences;
-original rejected values stay unchanged. Missing optional dates and response
-hours are allowed, but nonblank invalid values are rejected. The summary lists
-rules that found problems; an absent rule count means zero failures.
-
-Run the solution in your activated environment:
-
-```bash
-python -m src.quality
+```text
+input rows = accepted rows + quarantined rows
 ```
 
-This runs the module and saves clean data, quarantine data, and summary counts.
-To check that it behaves correctly:
-
-```bash
-python -m unittest discover -s tests
-```
-
-This finds and runs the project tests. It does not edit the raw files.
+A row may have multiple reasons but is counted once in the quarantined total. Reruns replace the current outputs.
 
 ## Topic 3 — PySpark curated transformations
 
-The Topic 3 notebook cell keeps the starter setup and implements each TODO by
-calling a small function in `src/transform.py`. It reads Topic 2 staging CSVs,
-not raw CSVs. Run Topic 2 first when inputs change.
+Spark reads staging CSVs using explicit schemas, builds the six-month calendar, and creates active-unit month-end lease snapshots. Occupancy, rent, maintenance, and energy are aggregated separately before joining them. This prevents multiple work orders from multiplying lease rent.
 
-### What each block does
+| KPI | Definition |
+|---|---|
+| Occupancy rate | Occupied active units at month end / total active units. |
+| Earned monthly rent | Contractual rent on leases active at month end; this is not cash collected. |
+| SLA compliance rate | Compliant resolved orders / all resolved orders. |
+| Energy consumption | Sum of accepted monthly readings in kWh. |
+| Energy intensity | Energy kWh / all accepted unit floor area, including inactive units. |
 
-1. **Load:** explicit schemas tell Spark which columns contain dates and numbers.
-   Missing or duplicate IDs stop the run with a message to rerun Topic 2.
-2. **Calendar:** create six months and their month-end dates.
-3. **Snapshot:** create one row for each active unit and month. Attach the lease
-   active on the last day; no lease means zero occupied units and zero rent.
-   Multiple active leases for one unit-month stop the run rather than guessing
-   which rent to use. Topic 2 already quarantines overlapping leases.
-4. **Aggregate:** calculate occupancy/rent, maintenance, and energy separately.
-   Joining these totals prevents multiple work orders from multiplying rent.
-5. **Join and check:** keep every property for every month, including properties
-   without activity. Check 72 rows, unique property/month keys, and rates from 0 to 1.
-6. **Save:** write Parquet files into month folders. Overwrite replaces the previous
-   output, making reruns safe without appending duplicate records.
+SLA means **Service Level Agreement**. Response limits are 4 hours for CRITICAL, 12 for HIGH, 48 for MEDIUM, and 72 for LOW. Resolved orders with missing responses remain in the denominator and count as noncompliant. Open orders are reported separately. Maintenance is assigned to the month it was opened.
 
-### Rate and date policies
+Lease end dates are inclusive. Missing lease ends are open-ended. Zero or missing denominators produce null rates; ratios such as `0.5` mean 50%. Missing readings produce zero recorded energy, which does not establish actual zero consumption.
 
-- Occupancy uses **active units** as the denominator. Leases ending on the last
-  day count as occupied. Rent is the month-end contractual rent for those units.
-- Maintenance belongs to the month of `opened_date`, even when closed later.
-  All accepted resolved cases are SLA eligible, including missing responses.
-  Missing responses count as noncompliant. Open cases are reported separately.
-- Energy uses **all accepted unit floor area**, including inactive and vacant units.
-  It sums the accepted readings recorded in that month. No readings means zero
-  recorded energy, which does not prove actual consumption was zero.
-- Zero or missing denominators produce null (blank) rates, not divide-by-zero errors.
-  Ratios are fractions: `0.5` means 50%. Non-positive unit areas are rejected in Topic 2.
-- No window ranking is needed: the unit-month check rejects competing leases,
-  so there is no arbitrary “winning” lease to select.
+Spark validates 72 unique property-month rows and rates within 0–1, then overwrites:
 
-### Run
-
-With your project environment activated:
-
-```bash
-python -m src.transform
+```text
+data/curated/property_month_kpis/month=2026-01-01/
+...
+data/curated/property_month_kpis/month=2026-06-01/
 ```
-
-This starts Spark locally, builds the KPIs, validates them, and writes
-`data/curated/property_month_kpis/`, partitioned by `month`.
-The standalone run does not require a PostgreSQL driver. The notebook preserves
-your existing driver configuration for later database work.
-
-```bash
-python -m unittest discover -s tests -p 'test_transform.py'
-```
-
-This runs small Spark tests for rent multiplication, month-end occupancy, missing
-SLA responses, unresolved cases, floor area, zero denominators, duplicate IDs,
-and overlapping leases. Use the pinned dependencies in `requirements.txt` and
-a compatible Java installation. Spark needs permission to open local sockets.
-
-Verified with the installed PySpark 4.2.0 and Java 17: the full staging run produced
-72 unique property-month rows across six Parquet partitions. All 17 earlier tests
-and eight Spark tests passed. The Parquet test writes twice and reads the files
-back to verify that overwrite does not duplicate rows.
 
 ## Topic 4 — PostgreSQL dimensional mart and analytics
 
-### Simple workflow
+### Configure the connection
 
-1. **Create the database once:** run `sql/00_database.sql` while connected to the
-   default `postgres` database. Skip this if `proptech360` already exists.
-2. **Set the connection privately:** keep your `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, and
-   `DB_PORT` settings in the project `.env` file, or set `DATABASE_URL`. The loader uses the database name you provide; it does not rename it. Do not save
-   passwords in this repository or notebook outputs.
-3. **Load:** run the loader below. It creates the mart tables, loads dimensions,
-   and inserts or updates the 72 fact rows. It loads twice to check rerun safety.
-4. **Verify:** it compares every stored metric with the curated Spark Parquet and
-   saves the five SQL answers under `evidence/`.
+Start PostgreSQL. In pgAdmin, connect to the existing `postgres` database and run `sql/00_database.sql` once to create `proptech360`. Skip creation if that database already exists.
 
-With your existing project environment activated:
+Create a project-root `.env` file with your server connection details:
+
+```dotenv
+DB_NAME=proptech360
+DB_USER=postgres
+DB_PASSWORD=your_postgresql_user_password
+DB_HOST=localhost
+DB_PORT=5432
+```
+
+Use the PostgreSQL user's password, not pgAdmin's master password. Keep `.env` private; it is ignored by Git. The loader also supports `DATABASE_URL`. A configured URL takes priority over separate fields, and terminal environment variables override matching `.env` settings.
+
+### Load and query
 
 ```bash
-python -m pip install -r requirements.txt
 python -m src.load_postgres
 ```
 
-The first command installs the PostgreSQL driver and Parquet reader. The second
-loads and verifies the mart. Use the environment variable through your database
-or notebook setup; the code never prints it. Separate `DB_*` settings are passed directly to psycopg, so passwords do not
-need URL encoding. The loader also accepts a `postgresql+psycopg://` URL.
-Settings from the terminal override matching `.env` names; `DATABASE_URL` takes
-priority over separate `DB_*` fields. The file is reread on every connection.
+The current loader uses **psycopg2 batch inserts** for writes and the **PostgreSQL Java driver through Spark JDBC** for reads and verification.
 
-Rerun Topic 3 first if your Parquet lacks `missing_response_orders`. This added
-count records resolved work orders with no response duration, which the Topic 4
-SLA query needs. The current generated Parquet includes it.
-
-### What the files do
-
-| File | Purpose |
+| Database object | Purpose |
 |---|---|
-| `sql/00_database.sql` | Creates `proptech360` once; requires database creation permission. |
-| `sql/01_schema.sql` | Creates dimensions, fact table, constraints, indexes, and dashboard view. |
-| `src/load_postgres.py` | Reads the small curated summary and loads it using parameterized inserts. |
-| `sql/02_load.sql` | Updates existing property-month rows or inserts new ones. |
-| `sql/03_analytics.sql` | Answers the five business questions. |
-| `tests/test_postgres.py` | Checks reload counts, reconciliation, dimensions, and rejected invalid records. |
+| `mart.dim_property` | Property identifier, name, and city. |
+| `mart.dim_month` | One date for the first day of each reporting month. |
+| `mart.fact_property_month` | Monthly counts, rent, energy, area, and calculated rates. |
+| `mart.portfolio_dashboard` | Monthly portfolio totals and weighted rates. |
 
-`dim_property` uses the natural `property_id` as its primary key. `dim_month`
-uses the first day of the month. `fact_property_month` uses both together as
-its primary key and has foreign keys to both dimensions. Surrogate keys are not
-needed for these stable capstone identifiers. Property attributes describe the
-latest state; changing a city updates the property rather than keeping history.
+The fact primary key is `(property_id, month)`, with foreign keys to the dimensions. Check constraints reject invalid values. PostgreSQL generates rates from the stored counts and amounts.
 
-Required counts and amounts cannot be NULL. Counts, money, and energy cannot be
-negative; occupancy and SLA counts cannot exceed their denominators. Rates are
-**generated columns**: PostgreSQL calculates them from the stored totals so they
-cannot disagree. A zero denominator gives NULL. Floor area may be NULL where
-Spark has no known property area. Its rate then stays NULL too.
+The loader stages data in a temporary table and uses `ON CONFLICT ... DO UPDATE`. Repeated loads update existing keys and retain 72 rows. It does not delete obsolete keys; the fixed-period row-count check catches unexpected totals. Load failures roll back the transaction.
 
-The primary key creates an index on `(property_id, month)`. Additional indexes
-on `month` and `city` help the monthly and city reports.
+The five analytics queries cover occupancy ranking, rent by city, SLA performance, energy intensity above the portfolio benchmark, and the monthly dashboard. See `sql/03_analytics.sql`.
 
-### Why staging and upsert are needed
+Current exports go into `evidence/04_postgres/` as `constraints.csv` and `query_1.csv` through `query_5.csv`. Existing `.txt` files are previously captured results. The loader also compares mart metrics with the curated Parquet data.
 
-The loader creates a temporary staging table inside one transaction. Values are
-passed separately from SQL using `%s` placeholders. `ON CONFLICT ... DO UPDATE`
-updates existing keys, so loading the same data twice leaves 72 rows. Errors roll
-back the transaction. The temporary table disappears at commit. Upsert does not
-delete old keys; this fixed Jan–Jun capstone stops if the total fact count is not 72.
+## Topic 5 — AWS serverless lake and Athena
 
-### Reading the five results
+The project's bucket is `proptech360-bucket-800557027629`. Use your own unique bucket name when reproducing this project in another account. Keep S3, Lambda, Glue, and Athena in the same AWS Region; the project console examples use Stockholm (`eu-north-1`).
 
-1. Occupancy ranking uses the average of defined monthly rates and displays
-   occupied unit-months, available unit-months, and the number of defined months.
-2. City rent is earned contractual rent, not money collected.
-3. SLA reporting excludes open cases. Missing responses among resolved cases
-   remain **included and noncompliant**, so excluded missing responses is zero.
-4. The portfolio energy benchmark is area-weighted: total kWh divided by total
-   accepted area. It is not the unweighted average of property intensities.
-5. The dashboard also divides summed counts to produce weighted portfolio rates.
-   NULL property rates do not become zero; `AVG` ignores them in query 1. The
-   dashboard calculates rates from totals and returns NULL for zero denominators.
+### 1. Upload the datasets
 
-After a successful load, `query_1.txt` through `query_5.txt` contain the actual
-answers; `constraints.txt` lists PostgreSQL schema constraints. The notebook runs
-the same loader under the Topic 4 TODO comments when `.env` or `DATABASE_URL` is configured.
+Keep the bucket private and enable default encryption. Use these prefixes:
 
-To run database tests against a test `proptech360` database:
+| S3 prefix | Contents |
+|---|---|
+| `raw/` | Source CSV uploads that trigger Lambda. |
+| `curated/property_month_kpis/` | Actual Spark Parquet output, including all `month=...` folders. |
+| `audit/` | JSON metadata written by Lambda. |
+| `athena-result/` | Athena SELECT query results, normally CSV plus metadata. |
 
-```bash
-python -m unittest discover -s tests -p 'test_postgres.py'
+Upload the local curated directory while preserving its six month folders. Uploading only the Parquet files without their partition folders loses the month values stored in the paths.
+
+### 2. Deploy Lambda and configure the trigger
+
+Deploy `aws/lambda_handler.py` to Lambda and set the runtime handler to `lambda_handler.lambda_handler`. Alternatively, paste its contents into the console file `lambda_function.py` and use `lambda_function.lambda_handler`. The file matches the code inside the notebook's `LAMBDA_HANDLER_STARTER` string.
+
+The Lambda execution role must trust `lambda.amazonaws.com` and allow:
+
+- `s3:GetObject` and `s3:GetObjectVersion` on this bucket's `raw/*` objects.
+- `s3:PutObject` on this bucket's `audit/*` objects.
+- CloudWatch log group/stream creation and log writes for the function.
+
+Use the S3 trigger with **All object create events**, prefix `raw/`, and suffix `.csv`. S3 must also have permission to invoke the function. Restricting the trigger to `raw/` prevents audit writes from triggering a loop.
+
+The handler checks event type, path, extension, object size, and metadata. It creates a deterministic audit filename from the source bucket, key, and version or ETag. Repeated notifications overwrite the same audit object. Failed S3 operations raise errors so Lambda can retry. It records file metadata, not a row-by-row CSV validation.
+
+Leave `AUDIT_BUCKET` unset to write audits to the source bucket. A different audit bucket requires matching write permissions. The supplied handler writes audits with S3-managed AES256 encryption.
+
+Use this saved Lambda test event after uploading a nonempty `raw/properties.csv`:
+
+```json
+{
+  "Records": [{
+    "eventSource": "aws:s3",
+    "eventName": "ObjectCreated:Put",
+    "s3": {
+      "bucket": {"name": "proptech360-bucket-800557027629"},
+      "object": {"key": "raw/properties.csv"}
+    }
+  }]
+}
 ```
 
-These tests load the real curated data twice. Invalid update attempts are rolled
-back. Without database settings, the six database tests explicitly skip.
+Expect `files_audited: 1`, an audit JSON containing source details and `status: accepted`, and a corresponding CloudWatch log entry. Upload another CSV after configuring the trigger to verify automatic invocation.
 
-### Current verification status
+### 3. Register the curated table
 
-The Python files compile and the curated Parquet contains 72 unique rows with
-the new missing-response count. The loader reads the existing `.env` settings,
-but the live connection check did not succeed. PostgreSQL loading, query
-outputs, and reconciliation remain pending a reachable configured database.
+Configure a Glue crawler with this include path:
 
-## Running the notebook workflow as Python modules
-
-The four `src/` files now follow the current notebook's order, names, and checks:
-
-| Module | Notebook structure |
-|---|---|
-| `ingest.py` | Read CSVs, validate columns, save the audit manifest. |
-| `quality.py` | Profile, clean, check each row, quarantine, and reconcile counts. |
-| `transform.py` | Read staging, build the calendar and snapshot, aggregate, join, check, and save. |
-| `load_postgres.py` | Read private settings, define SQL, prepare data, load with psycopg2, validate using Spark JDBC, and export queries. |
-
-Run from the project folder with the virtual environment activated:
-
-```bash
-python -m src.ingest
-python -m src.quality
-python -m src.transform
-python -m src.load_postgres
+```text
+s3://proptech360-bucket-800557027629/curated/property_month_kpis/
 ```
 
-Each command performs the corresponding notebook topic. Paths are anchored to
-the project folder. Spark commands stop their own session when finished; importing
-a module does not start Spark or connect to PostgreSQL. The PostgreSQL module
-uses the current notebook's `psycopg2-binary` dependency for batch loading and
-its Java driver for Spark reads. Existing callers can still use the public functions.
+Use a Glue service role with permission to list/read that curated location and update the intended Data Catalog database. The Lambda execution role serves a different purpose.
 
-Verified after this rewrite: 35 tests passed across ingestion, validation,
-configuration, Spark, and PostgreSQL. Database reloads stayed at 72 fact rows,
-and all stored metrics reconciled with the Spark Parquet.
+Run the crawler and verify the table's Parquet schema and six month partitions. If creating the table manually, use these fields:
+
+| Field | Glue type |
+|---|---|
+| `property_id` | string |
+| `total_units` | bigint |
+| `occupied_units` | bigint |
+| `earned_monthly_rent_usd` | double |
+| `resolved_orders` | bigint |
+| `sla_compliant_orders` | bigint |
+| `missing_response_orders` | bigint |
+| `open_orders` | bigint |
+| `sla_eligible_orders` | bigint |
+| `sla_noncompliant_orders` | bigint |
+| `energy_kwh` | double |
+| `floor_area_sqm` | double |
+| `occupancy_rate` | double |
+| `sla_compliance_rate` | double |
+| `energy_intensity_kwh_sqm` | double |
+
+Add `month` as a **string partition key**, not another regular column. Set the table property `classification` to `parquet`. Parquet does not need `skip.header.line.count`.
+
+### 4. Run Athena and reconcile results
+
+Set the Athena query result location to:
+
+```text
+s3://proptech360-bucket-800557027629/athena-result/
+```
+
+The identity running Athena needs access to the workgroup, Glue catalog metadata, curated source files, and the query result location. Select the Glue database. The following queries assume the table is named `property_month_kpis`; adjust it if the crawler created a different name.
+
+For a manually created partitioned table, register the month folders:
+
+```sql
+MSCK REPAIR TABLE property_month_kpis;
+```
+
+Find the top five property-month occupancy values:
+
+```sql
+SELECT property_id, month, total_units, occupied_units, occupancy_rate
+FROM property_month_kpis
+WHERE occupancy_rate IS NOT NULL
+ORDER BY occupancy_rate DESC, property_id, month
+LIMIT 5;
+```
+
+Calculate portfolio energy by month:
+
+```sql
+SELECT month, ROUND(SUM(energy_kwh), 2) AS total_energy_kwh
+FROM property_month_kpis
+GROUP BY month
+ORDER BY month;
+```
+
+Run the matching query in pgAdmin:
+
+```sql
+SELECT TO_CHAR(month, 'YYYY-MM-DD') AS month,
+       ROUND(CAST(SUM(energy_kwh) AS numeric), 2) AS total_energy_kwh
+FROM mart.fact_property_month
+GROUP BY month
+ORDER BY month;
+```
+
+Compare all six monthly rows, not just the grand total. After rounding to two decimals, corresponding totals should match. Record any difference and investigate before claiming reconciliation.
+
+If Athena returns one row with a blank month, check that `month` is a partition key, the files retain their month folders, and the table points at the dataset root. If only one month appears, check that all six partitions were uploaded and registered.
+
+### 5. Save evidence and clean up
+
+Save new evidence in the matching subfolder under `evidence/` (see the evidence index):
+
+- CloudWatch Lambda logs showing the accepted source file.
+- An example audit JSON and the Lambda test result.
+- Athena occupancy and monthly energy query screenshots or CSV exports.
+- Matching PostgreSQL monthly energy results and the comparison outcome.
+- Glue schema and partition evidence.
+
+Available AWS screenshots are organized by service under `evidence/05_aws/`. Duplicate screenshot folders have been removed from `aws/`, which now contains the Lambda handler. See [the evidence index](evidence/README.md) for file sources, the local monthly comparison, and outstanding captures. Existing Athena screenshots have blank month values, so they do not yet establish monthly AWS reconciliation.
+
+S3 storage/requests, Lambda execution, CloudWatch logs, Glue crawler runs, and Athena scans can incur charges. Use small datasets, on-demand crawler runs, and Parquet partitions. Keep credentials out of code, notebook outputs, and screenshots.
+
+When the lab is finished, disable the S3 notification, remove the project Lambda and crawler, remove unneeded catalog tables/databases, and delete project S3 objects and logs only when evidence is retained. Include object versions if bucket versioning is enabled. Remove the project bucket and IAM roles/policies only after confirming they are not shared.
+
+## Tests and expected results
+
+Run the complete suite from the project root:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+| Test file | Coverage |
+|---|---|
+| `test_ingest.py` | File/column checks, text preservation, manifests, and reruns. |
+| `test_quality.py` | Duplicates, invalid values, relationships, dates, quarantine, and reconciliation. |
+| `test_transform.py` | Occupancy, rent, SLA, energy, invalid keys, and Parquet reruns. |
+| `test_database_config.py` | Private settings, passwords, URL support, and configuration errors. |
+| `test_postgres.py` | Real database loads, constraints, counts, and Spark reconciliation. |
+
+The last verified full run passed **39 tests**, including Spark and PostgreSQL. Database tests load the configured mart and require staging data, curated Parquet, Java, the JDBC driver, and a reachable PostgreSQL instance. Use a test database. Without database settings, these integration tests skip. AWS deployment is checked separately through the evidence workflow above.
+
+Expected checks are accepted plus quarantined equals input, 72 unique curated keys, six month partitions, 72 fact rows after repeated loads, and matching monthly energy totals across systems.
+
+
+The project is a small, fixed-period capstone. It uses current property attributes, does not maintain dimension history, and requires a separate curated upload to AWS. These boundaries keep the pipeline understandable and its results straightforward to verify.

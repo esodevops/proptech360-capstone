@@ -299,7 +299,7 @@ def save_query_results(spark=None):
     if spark is None:
         spark = start_spark()
     jdbc_url, jdbc_options = jdbc_settings()
-    evidence_dir = PROJECT_ROOT / 'evidence'
+    evidence_dir = PROJECT_ROOT / 'evidence' / '04_postgres'
     evidence_dir.mkdir(parents=True, exist_ok=True)
     constraints = spark.read.jdbc(jdbc_url, f'({constraint_sql}) AS checks', properties=jdbc_options)
     constraints.toPandas().to_csv(evidence_dir / 'constraints.csv', index=False)

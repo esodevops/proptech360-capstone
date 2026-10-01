@@ -259,7 +259,7 @@ back to verify that overwrite does not duplicate rows.
 3. **Load:** run the loader below. It creates the mart tables, loads dimensions,
    and inserts or updates the 72 fact rows. It loads twice to check rerun safety.
 4. **Verify:** it compares every stored metric with the curated Spark Parquet and
-   saves the five SQL answers under `evidence/topic4/`.
+   saves the five SQL answers under `evidence/`.
 
 With your existing project environment activated:
 

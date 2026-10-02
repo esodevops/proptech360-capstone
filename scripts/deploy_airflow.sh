@@ -26,13 +26,21 @@ export PATH="$PROPTECH_PROJECT_DIR/venv/bin:$PATH"
 test -x "$PROPTECH_PROJECT_DIR/venv/bin/python"
 test -f "$PROPTECH_PROJECT_DIR/.env"
 
+# The virtual environment contains ARM64 native packages.
+if [ "$(uname -m)" != "arm64" ]; then
+  echo "Use a macOS ARM64 GitHub runner. This Intel/Rosetta runner cannot use the project's ARM64 environment."
+  exit 1
+fi
+python -c "import platform, pydantic_core; assert platform.machine() == 'arm64'"
+
 # Do not change code while another pipeline is queued or running.
 python - <<'PY'
 import json
 import subprocess
+import sys
 for state in ['running', 'queued']:
     output = subprocess.check_output([
-        'python', '-m', 'airflow', 'dags', 'list-runs',
+        sys.executable, '-m', 'airflow', 'dags', 'list-runs',
         'proptech360_dag', '--state', state, '--output', 'json'
     ], text=True)
     # The final line is JSON; earlier lines may contain Airflow startup logs.

@@ -42,7 +42,7 @@ jobs:
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: [self-hosted, macOS, proptech360]
+    runs-on: [self-hosted, macOS, ARM64, proptech360]
     timeout-minutes: 25
     environment: local-airflow
     concurrency:

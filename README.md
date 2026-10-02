@@ -422,7 +422,7 @@ CI runs the project tests with Python 3.14 and Java 17. PostgreSQL integration t
 ### One-time activation
 
 1. Commit and push the workflow and scripts to `main`.
-2. In GitHub, open **Settings → Actions → Runners → New self-hosted runner**. Select **macOS** and your Mac's architecture. Follow the generated download/configuration commands in a separate folder outside this project. Add the custom label **`proptech360`** during configuration. Start it with the supplied `./run.sh` command.
+2. In GitHub, open **Settings → Actions → Runners → New self-hosted runner**. Select **macOS / ARM64** for this Apple Silicon Mac. Follow the generated download/configuration commands in a separate folder outside this project. Add the custom label **`proptech360`** during configuration. Start it with the supplied `./run.sh` command.
 3. Under **Settings → Secrets and variables → Actions → Variables**, create **`PROPTECH_PROJECT_DIR`** with the full project path:
 
    ```text
@@ -435,3 +435,5 @@ CI runs the project tests with Python 3.14 and Java 17. PostgreSQL integration t
 7. Run the workflow from GitHub Actions, or push a change to `main`. Inspect the test job, deployment job, and Airflow task logs.
 
 The deployment script stops if the checkout has local changes or an Airflow run is already queued/running. It uses a fast-forward merge of the tested commit; it never resets your checkout or overwrites `.env`. Pipeline runs can change tracked data/evidence outputs, so review and commit those changes before a later deployment. If Airflow's version changes, restart its services after updating dependencies before deploying. This workflow does not register a runner, start Airflow, create the database, or deploy AWS resources for you.
+
+Deployment requires a macOS ARM64 runner to match the existing ARM64 virtual environment. An X64 runner under Rosetta is not compatible. Replace an X64 runner using GitHub’s macOS ARM64 download; changing its labels alone does not change its architecture. The script checks architecture and the native Pydantic import before invoking Airflow.

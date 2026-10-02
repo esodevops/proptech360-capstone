@@ -51,8 +51,19 @@ PY
 # Deploy exactly the commit that passed CI, using the existing Git credentials.
 git fetch origin main
 git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+LOCAL_COMMIT="$(git rev-parse HEAD)"
+if [ "$LOCAL_COMMIT" != "$GITHUB_SHA" ]; then
+  if ! git merge-base --is-ancestor "$LOCAL_COMMIT" "$GITHUB_SHA"; then
+    echo "This workflow targets $GITHUB_SHA, but the local checkout is at $LOCAL_COMMIT."
+    echo "The local checkout is ahead or has diverged. Start a new workflow on current main instead of rerunning an older run."
+    exit 1
+  fi
+fi
 git merge --ff-only "$GITHUB_SHA"
-test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+  echo "Deployment stopped: the local commit does not match the commit tested by this workflow."
+  exit 1
+fi
 python -m pip install -r requirements.txt
 python scripts/check_dag.py
 python -m airflow dags reserialize

@@ -15,10 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      AIRFLOW_HOME: ${{ runner.temp }}/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       PYSPARK_PYTHON: python
     steps:
+      - name: Set Airflow home
+        run: echo "AIRFLOW_HOME=$RUNNER_TEMP/airflow" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

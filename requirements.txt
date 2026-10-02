@@ -13,3 +13,7 @@ python-dotenv==1.2.3
 
 # Matches the current Topic 4 notebook batch loader.
 psycopg2-binary==2.9.13
+
+apache-airflow==3.3.0
+
+apache-airflow-providers-smtp==3.0.2

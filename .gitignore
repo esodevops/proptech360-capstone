@@ -48,3 +48,6 @@ derby.log
 ._*
 Thumbs.db
 Desktop.ini
+
+# Local Airflow database, logs, and runtime settings
+/airflow/

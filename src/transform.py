@@ -1,15 +1,21 @@
 """Topic 3: notebook stages for loading, snapshots, aggregation, and Parquet."""
+import os
+import sys
 from pathlib import Path
 from pyspark.sql import SparkSession, functions as F
 from src.ingest import PROJECT_ROOT
 
 
 def start_spark():
+    # Spark workers must use the same Python as the running Airflow task.
+    os.environ["PYSPARK_PYTHON"] = sys.executable
+    os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
     postgres_driver = PROJECT_ROOT / 'postgresql-42.7.13.jar'
     if not postgres_driver.exists():
         raise FileNotFoundError(f'Driver not found: {postgres_driver}')
     return (SparkSession.builder.appName('PropTech360-Capstone')
-            .config('spark.jars', str(postgres_driver)).master('local[2]').getOrCreate())
+            .config('spark.jars', str(postgres_driver))
+            .config('spark.pyspark.python', sys.executable).master('local[2]').getOrCreate())
 
 properties_schema = "property_id STRING, property_name STRING, city STRING"
 units_schema = "unit_id STRING, property_id STRING, floor_area_sqm DOUBLE, active INT"

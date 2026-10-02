@@ -390,3 +390,25 @@ Expected checks are accepted plus quarantined equals input, 72 unique curated ke
 
 
 The project is a small, fixed-period capstone. It uses current property attributes, does not maintain dimension history, and requires a separate curated upload to AWS. These boundaries keep the pipeline understandable and its results straightforward to verify.
+
+## Run the pipeline with Airflow
+
+The DAG in `dags/dags_script.py` keeps three sequential Python tasks:
+
+```text
+extraction_layer → transformation_layer → loading_layer
+```
+
+Extraction runs ingestion and Pandas validation. Transformation writes Spark Parquet. Loading upserts PostgreSQL, checks the results, and exports the analytics. Each Spark task stops its session even if it fails. Only one DAG run executes at a time because runs share output folders.
+
+From the project root, activate your existing environment and set:
+
+```bash
+export AIRFLOW_HOME="$PWD/airflow"
+export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
+airflow standalone
+```
+
+`AIRFLOW_HOME` keeps runtime files inside the project; `DAGS_FOLDER` points to the actual DAG file's directory. Runtime files are ignored by Git. Start PostgreSQL and generate the raw CSVs first; Spark also needs Java and the PostgreSQL JAR described above. In the Airflow UI, enable `proptech360_dag` and trigger it manually. Restart running Airflow services after changing these environment settings.
+
+The DAG retries failed tasks once after one minute. Email notifications are enabled only when `AIRFLOW_ALERT_EMAIL` is set; configure the `smtp_default` connection before enabling alerts. The DAG does not upload files to AWS or deploy Lambda.

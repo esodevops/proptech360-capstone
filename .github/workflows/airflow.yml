@@ -1,0 +1,57 @@
+name: Test and run PropTech360
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AIRFLOW_HOME: ${{ runner.temp }}/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      PYSPARK_PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install project dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run tests
+        # Database tests skip because this runner has no private DB settings.
+        run: python -m unittest discover -s tests -v
+      - name: Check the DAG
+        run: python scripts/check_dag.py
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, macOS, proptech360]
+    timeout-minutes: 25
+    environment: local-airflow
+    concurrency:
+      group: proptech360-local-deployment
+      cancel-in-progress: false
+    env:
+      PROPTECH_PROJECT_DIR: ${{ vars.PROPTECH_PROJECT_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Update local project and run Airflow
+        run: bash scripts/deploy_airflow.sh

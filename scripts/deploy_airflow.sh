@@ -7,8 +7,16 @@ set -euo pipefail
 cd "$PROPTECH_PROJECT_DIR"
 
 # Protect local work: deployment never resets or deletes files.
-if [ "$(git branch --show-current)" != "main" ] || [ -n "$(git status --porcelain)" ]; then
-  echo "Use a clean main checkout for deployment. Commit or move local changes first."
+CURRENT_BRANCH="$(git branch --show-current)"
+if [ "$CURRENT_BRANCH" != "main" ]; then
+  echo "Deployment requires main, but the local project is on $CURRENT_BRANCH."
+  echo "Switch the local project to main, then rerun the workflow."
+  exit 1
+fi
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Deployment stopped because the local project has uncommitted changes:"
+  git status --short
+  echo "Commit or move these changes before rerunning the workflow."
   exit 1
 fi
 

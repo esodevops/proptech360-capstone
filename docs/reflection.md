@@ -1,0 +1,7 @@
+Missing response times in work orders were the main threat to accurate KPIs. Deleting these records would falsely inflate maintenance scores. To stay transparent and discourage incomplete reporting, the pipeline keeps these orders, flags them, and treats them as non-compliant SLA violations.
+
+The data uses a monthly, property-level scale so each row shows one property's performance for a single month. Combining occupancy, rent, maintenance, and energy details at this shared level enables clear property comparisons and trend analysis. Aggregating each data source before joining prevents duplicate rows from inflating totals.
+
+A downside of serverless setups is that troubleshooting spans multiple services. For example, a Lambda function can run successfully yet audit zero files. Operators must check S3 events, Lambda logs, Glue metadata, and Athena queries to pinpoint issues.
+
+For production, I would add detailed error logging and set alerts for failed runs or missing data. Automated checks would flag discrepancies across Spark, PostgreSQL, and Athena. I would process only changed data rather than full reloads, while establishing clear KPI definitions, data ownership, access limits, and fix workflows.

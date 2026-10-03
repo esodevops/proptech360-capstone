@@ -258,14 +258,21 @@ Use this saved Lambda test event after uploading a nonempty `raw/properties.csv`
 
 ```json
 {
-  "Records": [{
-    "eventSource": "aws:s3",
-    "eventName": "ObjectCreated:Put",
-    "s3": {
-      "bucket": {"name": "proptech360-bucket-800557027629"},
-      "object": {"key": "raw/properties.csv"}
+  "Records": [
+    {
+      "eventSource": "aws:s3",
+      "eventName": "ObjectCreated:Put",
+      "awsRegion": "eu-north-1",
+      "s3": {
+        "bucket": {
+          "name": "proptech360-bucket-800557027629"
+        },
+        "object": {
+          "key": "raw/properties.csv"
+        }
+      }
     }
-  }]
+  ]
 }
 ```
 
@@ -412,28 +419,3 @@ airflow standalone
 `AIRFLOW_HOME` keeps runtime files inside the project; `DAGS_FOLDER` points to the actual DAG file's directory. Runtime files are ignored by Git. Start PostgreSQL and generate the raw CSVs first; Spark also needs Java and the PostgreSQL JAR described above. In the Airflow UI, enable `proptech360_dag` and trigger it manually. Restart running Airflow services after changing these environment settings.
 
 The DAG retries failed tasks once after one minute. Email notifications are enabled only when `AIRFLOW_ALERT_EMAIL` is set; configure the `smtp_default` connection before enabling alerts. The DAG does not upload files to AWS or deploy Lambda.
-
-## CI/CD with GitHub Actions
-
-`.github/workflows/airflow.yml` tests pull requests and pushes to `main`. After tests pass on `main`, a self-hosted runner on your Mac updates the local checkout, validates the DAG, and triggers `proptech360_dag`. Manual runs are also available through **Actions → Test and run PropTech360 → Run workflow** on `main`.
-
-CI runs the project tests with Python 3.14 and Java 17. PostgreSQL integration tests skip on GitHub because private database settings are not supplied. Deployment runs the real pipeline locally, including the loader's PostgreSQL reconciliation. GitHub waits up to 15 minutes for the DAG outcome and reports failed or timed-out runs as workflow failures.
-
-### One-time activation
-
-1. Commit and push the workflow and scripts to `main`.
-2. In GitHub, open **Settings → Actions → Runners → New self-hosted runner**. Select **macOS / ARM64** for this Apple Silicon Mac. Follow the generated download/configuration commands in a separate folder outside this project. Add the custom label **`proptech360`** during configuration. Start it with the supplied `./run.sh` command.
-3. Under **Settings → Secrets and variables → Actions → Variables**, create **`PROPTECH_PROJECT_DIR`** with the full project path:
-
-   ```text
-   /Users/sulaimon/Desktop/AMDARI-Data-Engineering/ClassNote/proptech360-capstone
-   ```
-
-4. Create the **`local-airflow`** environment under **Settings → Environments** and restrict deployment branches to `main`. This workflow only sends main-branch deployment jobs to the Mac; pull-request tests run on GitHub-hosted runners. A self-hosted runner executes repository code with your local user's permissions, so use it only for trusted code and restrict who can change workflows or push to `main`.
-5. Keep the local checkout on `main` with no uncommitted changes. The runner must be a separate checkout from `PROPTECH_PROJECT_DIR`. The deployment directory needs the existing `venv`, `.env`, Java, JDBC JAR, and raw CSVs. Keep database secrets in the local `.env`; do not upload them to GitHub.
-6. Start PostgreSQL and Airflow as shown in the previous section. Confirm `proptech360_dag` appears in Airflow before the first deployment. Leave the Mac awake, Airflow running, and the runner online.
-7. Run the workflow from GitHub Actions, or push a change to `main`. Inspect the test job, deployment job, and Airflow task logs.
-
-The deployment script stops if the checkout has local changes or an Airflow run is already queued/running. It uses a fast-forward merge of the tested commit; it never resets your checkout or overwrites `.env`. Pipeline runs can change tracked data/evidence outputs, so review and commit those changes before a later deployment. If Airflow's version changes, restart its services after updating dependencies before deploying. This workflow does not register a runner, start Airflow, install PostgreSQL or deploy AWS resources for you. The loading task creates the project database if it is missing and the configured user has permission.
-
-Deployment requires a macOS ARM64 runner to match the existing ARM64 virtual environment. An X64 runner under Rosetta is not compatible. Replace an X64 runner using GitHub’s macOS ARM64 download; changing its labels alone does not change its architecture. The script checks architecture and the native Pydantic import before invoking Airflow.

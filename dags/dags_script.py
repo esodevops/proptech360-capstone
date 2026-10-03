@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import timedelta
 
 import pendulum
+from dotenv import load_dotenv
 from airflow.sdk import DAG
 from airflow.providers.smtp.notifications.smtp import send_smtp_notification
 from airflow.providers.standard.operators.python import PythonOperator
@@ -40,6 +41,8 @@ def loading():
         spark.stop()
 
 
+# Read the alert address from the project .env before enabling notifications.
+load_dotenv(PROJECT_ROOT / ".env")
 ALERT_EMAIL = os.getenv("AIRFLOW_ALERT_EMAIL")
 
 dag_failure_notification = send_smtp_notification(

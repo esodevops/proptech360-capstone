@@ -184,7 +184,7 @@ data/curated/property_month_kpis/month=2026-06-01/
 
 ### Configure the connection
 
-Start PostgreSQL. In pgAdmin, connect to the existing `postgres` database and run `sql/00_database.sql` once to create `proptech360`. Skip creation if that database already exists.
+Start PostgreSQL. The loader and Topic 4 notebook now create the configured database automatically if it is missing, using the existing `postgres` maintenance database. Set `DB_NAME=proptech360` as shown below. The database user must be allowed to connect to `postgres` and have `CREATEDB` permission for first-time creation. Existing databases are left unchanged. `sql/00_database.sql` remains an optional manual alternative.
 
 Create a project-root `.env` file with your server connection details:
 
@@ -434,6 +434,6 @@ CI runs the project tests with Python 3.14 and Java 17. PostgreSQL integration t
 6. Start PostgreSQL and Airflow as shown in the previous section. Confirm `proptech360_dag` appears in Airflow before the first deployment. Leave the Mac awake, Airflow running, and the runner online.
 7. Run the workflow from GitHub Actions, or push a change to `main`. Inspect the test job, deployment job, and Airflow task logs.
 
-The deployment script stops if the checkout has local changes or an Airflow run is already queued/running. It uses a fast-forward merge of the tested commit; it never resets your checkout or overwrites `.env`. Pipeline runs can change tracked data/evidence outputs, so review and commit those changes before a later deployment. If Airflow's version changes, restart its services after updating dependencies before deploying. This workflow does not register a runner, start Airflow, create the database, or deploy AWS resources for you.
+The deployment script stops if the checkout has local changes or an Airflow run is already queued/running. It uses a fast-forward merge of the tested commit; it never resets your checkout or overwrites `.env`. Pipeline runs can change tracked data/evidence outputs, so review and commit those changes before a later deployment. If Airflow's version changes, restart its services after updating dependencies before deploying. This workflow does not register a runner, start Airflow, install PostgreSQL or deploy AWS resources for you. The loading task creates the project database if it is missing and the configured user has permission.
 
 Deployment requires a macOS ARM64 runner to match the existing ARM64 virtual environment. An X64 runner under Rosetta is not compatible. Replace an X64 runner using GitHub’s macOS ARM64 download; changing its labels alone does not change its architecture. The script checks architecture and the native Pydantic import before invoking Airflow.

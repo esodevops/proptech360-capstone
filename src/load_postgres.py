@@ -2,6 +2,7 @@
 import os
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 import pandas as pd
 from dotenv import dotenv_values
 from src.ingest import PROJECT_ROOT
@@ -20,15 +21,40 @@ def database_configured():
     return bool(settings.get('DATABASE_URL') or (settings.get('DB_NAME') and settings.get('DB_USER')))
 
 
-def connect():
+def connect(dbname=None):
     settings = database_settings()
     if settings.get('DATABASE_URL'):
-        return psycopg2.connect(settings['DATABASE_URL'].replace('postgresql+psycopg://', 'postgresql://', 1), connect_timeout=5)
+        url = settings['DATABASE_URL'].replace('postgresql+psycopg://', 'postgresql://', 1)
+        if dbname:
+            return psycopg2.connect(url, dbname=dbname, connect_timeout=5)
+        return psycopg2.connect(url, connect_timeout=5)
     if not settings.get('DB_NAME') or not settings.get('DB_USER'):
         raise ValueError('Set DB_NAME and DB_USER in .env, or provide DATABASE_URL.')
     return psycopg2.connect(host=settings.get('DB_HOST') or 'localhost',
-        port=settings.get('DB_PORT') or '5432', dbname=settings['DB_NAME'],
+        port=settings.get('DB_PORT') or '5432', dbname=dbname or settings['DB_NAME'],
         user=settings['DB_USER'], password=settings.get('DB_PASSWORD'), connect_timeout=5)
+
+
+def create_database():
+    """Create the configured database once; leave an existing database unchanged."""
+    settings = database_settings()
+    dbname = settings.get('DB_NAME')
+    if settings.get('DATABASE_URL'):
+        url = settings['DATABASE_URL'].replace('postgresql+psycopg://', 'postgresql://', 1)
+        dbname = psycopg2.extensions.parse_dsn(url).get('dbname')
+    if not dbname:
+        raise ValueError('Set DB_NAME or include a database name in DATABASE_URL.')
+
+    # Connect to the existing maintenance database before creating our database.
+    connection = connect(dbname='postgres')
+    try:
+        connection.autocommit = True  # CREATE DATABASE cannot run in a transaction.
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1 FROM pg_database WHERE datname = %s', (dbname,))
+            if cursor.fetchone() is None:
+                cursor.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(dbname)))
+    finally:
+        connection.close()
 
 
 def jdbc_settings():
@@ -231,6 +257,7 @@ def load_mart(spark=None):
 
 
     # 4. DATABASE INITIALIZATION & LOADING
+    create_database()
     conn = connect()
     conn.autocommit = False 
     cursor = conn.cursor()

@@ -58,5 +58,52 @@ class DatabaseConfigTests(unittest.TestCase):
             load_postgres.connect()
 
 
+    def test_existing_database_is_not_recreated(self):
+        with patch.object(load_postgres, 'connect') as connect:
+            connection = connect.return_value
+            cursor = connection.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (1,)
+            load_postgres.create_database()
+            connect.assert_called_once_with(dbname='postgres')
+            cursor.execute.assert_called_once_with(
+                'SELECT 1 FROM pg_database WHERE datname = %s', ('example_db',)
+            )
+            self.assertTrue(connection.autocommit)
+            connection.close.assert_called_once()
+
+    def test_missing_database_is_created_from_url(self):
+        self.env_file.write_text('DATABASE_URL=postgresql://user:example@localhost/new_db\n')
+        with patch.object(load_postgres, 'connect') as connect:
+            connection = connect.return_value
+            cursor = connection.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = None
+            load_postgres.create_database()
+            self.assertEqual(cursor.execute.call_args_list[0].args[1], ('new_db',))
+            expected = load_postgres.sql.SQL('CREATE DATABASE {}').format(
+                load_postgres.sql.Identifier('new_db')
+            )
+            cursor.execute.assert_called_with(expected)
+            connection.close.assert_called_once()
+
+    def test_creation_failure_closes_connection(self):
+        with patch.object(load_postgres, 'connect') as connect:
+            connection = connect.return_value
+            cursor = connection.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = None
+            cursor.execute.side_effect = [None, load_postgres.psycopg2.errors.InsufficientPrivilege()]
+            with self.assertRaises(load_postgres.psycopg2.errors.InsufficientPrivilege):
+                load_postgres.create_database()
+            connection.close.assert_called_once()
+
+    def test_maintenance_connection_overrides_url_database(self):
+        self.env_file.write_text('DATABASE_URL=postgresql://user:example@localhost/new_db\n')
+        with patch.object(load_postgres.psycopg2, 'connect') as connection:
+            load_postgres.connect(dbname='postgres')
+            connection.assert_called_once_with(
+                'postgresql://user:example@localhost/new_db',
+                dbname='postgres', connect_timeout=5
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

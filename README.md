@@ -419,3 +419,93 @@ airflow standalone
 `AIRFLOW_HOME` keeps runtime files inside the project; `DAGS_FOLDER` points to the actual DAG file's directory. Runtime files are ignored by Git. Start PostgreSQL and generate the raw CSVs first; Spark also needs Java and the PostgreSQL JAR described above. In the Airflow UI, enable `proptech360_dag` and trigger it manually. Restart running Airflow services after changing these environment settings.
 
 The DAG retries failed tasks once after one minute. Email notifications are enabled only when `AIRFLOW_ALERT_EMAIL` is set; configure the `smtp_default` connection before enabling alerts. The DAG does not upload files to AWS or deploy Lambda.
+
+### Set up Airflow email notifications with Gmail
+
+The existing DAG sends an email when a task fails after its retry is exhausted. It uses the `smtp_default` Airflow connection. Follow these steps in the same Python environment used to start Airflow.
+
+#### 1. Install the required packages
+
+From the project root, activate your environment and install the project dependencies:
+
+```bash
+source venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip check
+```
+
+If your environment is named `.venv`, use `source .venv/bin/activate` instead. Installing the requirements includes the pipeline packages needed to load and run this DAG. `pip check` reports dependency conflicts.
+
+| Package | Purpose |
+|---|---|
+| `apache-airflow==3.3.0` | Runs the DAG, tasks, and failure callbacks. |
+| `apache-airflow-providers-smtp==3.0.2` | Provides the SMTP email notifier. |
+| `python-dotenv==1.2.3` | Reads the alert address from `.env`. |
+| `certifi==2026.7.22` | Supplies trusted certificates for verifying the SMTP server. |
+| `apache-airflow-providers-standard` | Provides `PythonOperator`; installed through Airflow's dependencies. |
+| `pendulum` | Provides the DAG's timezone-aware start date; installed through Airflow's dependencies. |
+
+There is no separate package to install for `os`, `ssl`, or `smtplib`; these are part of Python. The DAG already loads `.env` and sets `SSL_CERT_FILE` to the certificate bundle from `certifi` when no custom certificate path is configured.
+
+#### 2. Prepare the Gmail account
+
+Enable **2-Step Verification** on the sending Google account, then create an **App Password** for Airflow. Use that app password in the SMTP connection, not your usual Gmail password. Some managed accounts or account security settings do not allow app passwords; those accounts need an approved alternative such as OAuth2. See [Google's app password instructions](https://support.google.com/mail/answer/185833).
+
+#### 3. Set the alert address
+
+Add this setting to the existing project-root `.env` file, keeping your database settings:
+
+```dotenv
+AIRFLOW_ALERT_EMAIL=your_email@gmail.com
+```
+
+Replace the example with your Gmail address. The current DAG uses this address as both sender and recipient, so use the same account as the SMTP login. Keep the app password in the Airflow connection rather than in the DAG or README.
+
+#### 4. Create the SMTP connection
+
+In the Airflow UI, open **Admin → Connections** and create or edit this connection:
+
+| Field | Value |
+|---|---|
+| Connection ID | `smtp_default` |
+| Connection Type | `SMTP` |
+| Host | `smtp.gmail.com` |
+| Login | The Gmail address used above |
+| Password | The Google app password |
+| Port | `587` |
+
+Use these connection extras:
+
+```json
+{
+  "disable_ssl": true,
+  "disable_tls": false,
+  "ssl_context": "default",
+  "timeout": 10,
+  "retry_limit": 0
+}
+```
+
+If the form shows checkboxes, **check Disable SSL** and **uncheck Disable TLS**. Port 587 starts with a normal connection and upgrades it securely with STARTTLS. Keep certificate verification enabled. The 10-second timeout and zero additional connection retries help expose SMTP errors promptly; the DAG still has its separate task retry.
+
+Save, reopen the connection, and confirm the settings persisted. Configuring only the `[smtp]` section in `airflow.cfg` does not replace this provider connection. See [Airflow's SMTP connection documentation](https://airflow.apache.org/docs/apache-airflow-providers-smtp/stable/connections/smtp.html).
+
+#### 5. Restart Airflow and check a new run
+
+Stop the existing standalone process with **Ctrl+C** in its terminal. From the project root, with the same environment activated, restart it:
+
+```bash
+export AIRFLOW_HOME="$PWD/airflow"
+export AIRFLOW__CORE__DAGS_FOLDER="$PWD/dags"
+airflow standalone
+```
+
+This loads the updated DAG and uses the project Airflow database containing `smtp_default`. Trigger a new `proptech360_dag` run. If a task fails during execution, it retries once after one minute; a final failure invokes the email callback.
+
+In the failed task's logs, look for:
+
+```text
+Starting failure email notification.
+SMTP server accepted the failure email.
+```
+

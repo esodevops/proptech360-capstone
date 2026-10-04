@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import timedelta
 
 import pendulum
+import certifi
 from dotenv import load_dotenv
 from airflow.sdk import DAG
 from airflow.providers.smtp.notifications.smtp import send_smtp_notification
@@ -43,6 +44,8 @@ def loading():
 
 # Read the alert address from the project .env before enabling notifications.
 load_dotenv(PROJECT_ROOT / ".env")
+# Use trusted certificates when Python verifies the SMTP server on macOS.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 ALERT_EMAIL = os.getenv("AIRFLOW_ALERT_EMAIL")
 
 dag_failure_notification = send_smtp_notification(
@@ -59,11 +62,18 @@ dag_failure_notification = send_smtp_notification(
 )
 
 
+def notify_failure(context):
+    print("Starting failure email notification.", flush=True)
+    dag_failure_notification(context)
+    print("SMTP server accepted the failure email.", flush=True)
+
+
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=1),
+    "on_failure_callback": notify_failure if ALERT_EMAIL else None,
 }
 
 
@@ -76,7 +86,6 @@ with DAG(
     catchup=False,
     tags=["proptech360", "etl"],
     max_active_runs=1,  # Runs share the same staging and output files.
-    on_failure_callback=[dag_failure_notification] if ALERT_EMAIL else None,
 ) as dag:
 
     extraction_task = PythonOperator(

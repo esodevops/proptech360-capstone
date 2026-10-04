@@ -19,3 +19,6 @@ apache-airflow==3.3.0
 
 # Send email notifications when an Airflow DAG run fails.
 apache-airflow-providers-smtp==3.0.2
+
+# Trusted certificates for secure SMTP connections on macOS.
+certifi==2026.7.22

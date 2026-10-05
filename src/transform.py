@@ -101,6 +101,7 @@ def make_calendar(spark):
     ]
 
     calendar_df = spark.createDataFrame(dates_data, ["month"])
+    # month: Reporting month from the January-June 2026 calendar.
     calendar_df = calendar_df.withColumn("month", F.to_date(F.col("month")))
     calendar_df = calendar_df.withColumn("month_end", F.last_day(F.col("month")))
     return calendar_df
@@ -150,8 +151,11 @@ def aggregate_kpis(tables, snapshot):
     # 6. COMPUTE METRICS SEPARATELY
     # A. Occupancy & Rent KPIs
     occupancy_kpi_df = snapshot_df.groupBy("property_id", "month").agg(
+        # total_units: Count of accepted active units for each property and month.
         F.count("*").alias("total_units"),
+        # occupied_units: Count of active units with a lease covering the month-end date.
         F.sum("occupied").alias("occupied_units"),
+        # earned_monthly_rent_usd: Sum of monthly_rent_usd for those month-end leases; not cash collected.
         F.sum("monthly_rent_usd").alias("earned_monthly_rent_usd"),
     )
 
@@ -178,16 +182,22 @@ def aggregate_kpis(tables, snapshot):
     is_open = F.col("status") == "OPEN"
 
     maintenance_kpi_df = orders_df.groupBy("property_id", "month").agg(
+        # resolved_orders: Count of RESOLVED work orders, grouped by property and month opened.
         F.sum(F.when(is_resolved, 1).otherwise(0)).alias("resolved_orders"),
+        # sla_compliant_orders: Count of resolved orders meeting response limits: CRITICAL 4h, HIGH 12h, MEDIUM 48h, LOW 72h.
         F.sum(F.when(is_compliant, 1).otherwise(0)).alias("sla_compliant_orders"),
+        # missing_response_orders: Count of resolved work orders with missing response_hours.
         F.sum(F.when(is_missing_resp, 1).otherwise(0)).alias("missing_response_orders"),
+        # open_orders: Count of OPEN work orders, grouped by property and month opened.
         F.sum(F.when(is_open, 1).otherwise(0)).alias("open_orders"),
     )
 
     maintenance_kpi_df = maintenance_kpi_df.withColumn(
+        # sla_eligible_orders: Equals resolved_orders, including orders with missing response_hours.
         "sla_eligible_orders", F.col("resolved_orders")
     )
     maintenance_kpi_df = maintenance_kpi_df.withColumn(
+        # sla_noncompliant_orders: resolved_orders minus sla_compliant_orders; includes missing responses.
         "sla_noncompliant_orders", F.col("resolved_orders") - F.col("sla_compliant_orders")
     )
 
@@ -196,10 +206,12 @@ def aggregate_kpis(tables, snapshot):
     readings_df = readings_df.withColumn("month", F.trunc(F.col("reading_month"), "month"))
 
     energy_kpi_df = readings_df.groupBy("property_id", "month").agg(
+        # energy_kwh: Sum of accepted meter_readings.energy_kwh for each property and month.
         F.sum("energy_kwh").alias("energy_kwh")
     )
 
     property_area_df = units_df.groupBy("property_id").agg(
+        # floor_area_sqm: Sum of accepted units.floor_area_sqm per property, including inactive units.
         F.sum("floor_area_sqm").alias("floor_area_sqm")
     )
     return occupancy_kpi_df, maintenance_kpi_df, energy_kpi_df, property_area_df
@@ -244,6 +256,7 @@ def join_kpis(tables, calendar, occupancy, maintenance, energy, area):
 
     # Compute rate columns using safe division
     final_kpis_df = final_kpis_df.withColumn(
+        # occupancy_rate: occupied_units divided by total_units; null when the denominator is zero.
         "occupancy_rate",
         F.when(
             F.col("total_units") > 0, F.col("occupied_units") / F.col("total_units")
@@ -251,6 +264,7 @@ def join_kpis(tables, calendar, occupancy, maintenance, energy, area):
     )
 
     final_kpis_df = final_kpis_df.withColumn(
+        # sla_compliance_rate: sla_compliant_orders divided by sla_eligible_orders; null when the denominator is zero.
         "sla_compliance_rate",
         F.when(
             F.col("sla_eligible_orders") > 0,
@@ -259,6 +273,7 @@ def join_kpis(tables, calendar, occupancy, maintenance, energy, area):
     )
 
     final_kpis_df = final_kpis_df.withColumn(
+        # energy_intensity_kwh_sqm: energy_kwh divided by floor_area_sqm; null for zero or missing area.
         "energy_intensity_kwh_sqm",
         F.when(
             F.col("floor_area_sqm") > 0, F.col("energy_kwh") / F.col("floor_area_sqm")

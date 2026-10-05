@@ -13,23 +13,38 @@ CREATE TABLE IF NOT EXISTS mart.dim_month (
 
 CREATE TABLE IF NOT EXISTS mart.fact_property_month (
     property_id TEXT REFERENCES mart.dim_property(property_id) NOT NULL,
+    -- month: First day of the reporting month; work orders use opened_date and readings use reading_month.
     month DATE REFERENCES mart.dim_month(month) NOT NULL,
+    -- total_units: Count of accepted active units for each property and month.
     total_units INTEGER NOT NULL CHECK (total_units >= 0),
+    -- occupied_units: Count of active units with a lease covering the month-end date.
     occupied_units INTEGER NOT NULL CHECK (occupied_units BETWEEN 0 AND total_units),
+    -- earned_monthly_rent_usd: Sum of monthly_rent_usd for those month-end leases; not cash collected.
     earned_monthly_rent_usd NUMERIC(18,2) NOT NULL CHECK (earned_monthly_rent_usd >= 0),
+    -- resolved_orders: Count of RESOLVED work orders, grouped by property and month opened.
     resolved_orders INTEGER NOT NULL CHECK (resolved_orders >= 0),
+    -- sla_eligible_orders: Equals resolved_orders, including orders with missing response_hours.
     sla_eligible_orders INTEGER NOT NULL CHECK (sla_eligible_orders = resolved_orders),
+    -- sla_compliant_orders: Count of resolved orders meeting response limits: CRITICAL 4h, HIGH 12h, MEDIUM 48h, LOW 72h.
     sla_compliant_orders INTEGER NOT NULL CHECK (sla_compliant_orders BETWEEN 0 AND sla_eligible_orders),
+    -- sla_noncompliant_orders: resolved_orders minus sla_compliant_orders; includes missing responses.
     sla_noncompliant_orders INTEGER NOT NULL CHECK (sla_noncompliant_orders = resolved_orders - sla_compliant_orders),
+    -- missing_response_orders: Count of resolved work orders with missing response_hours.
     missing_response_orders INTEGER NOT NULL CHECK (missing_response_orders BETWEEN 0 AND sla_noncompliant_orders),
+    -- open_orders: Count of OPEN work orders, grouped by property and month opened.
     open_orders INTEGER NOT NULL CHECK (open_orders >= 0),
+    -- energy_kwh: Sum of accepted meter_readings.energy_kwh for each property and month.
     energy_kwh NUMERIC(18,2) NOT NULL CHECK (energy_kwh >= 0),
+    -- floor_area_sqm: Sum of accepted units.floor_area_sqm per property, including inactive units.
     floor_area_sqm NUMERIC(18,2) CHECK (floor_area_sqm >= 0),
     -- Generated rates always agree with their counts. NULLIF prevents division by zero.
+    -- occupancy_rate: occupied_units divided by total_units; null when the denominator is zero.
     occupancy_rate NUMERIC GENERATED ALWAYS AS
         (occupied_units::NUMERIC / NULLIF(total_units, 0)) STORED,
+    -- sla_compliance_rate: sla_compliant_orders divided by sla_eligible_orders; null when the denominator is zero.
     sla_compliance_rate NUMERIC GENERATED ALWAYS AS
         (sla_compliant_orders::NUMERIC / NULLIF(sla_eligible_orders, 0)) STORED,
+    -- energy_intensity_kwh_sqm: energy_kwh divided by floor_area_sqm; null for zero or missing area.
     energy_intensity_kwh_sqm NUMERIC GENERATED ALWAYS AS
         (energy_kwh / NULLIF(floor_area_sqm, 0)) STORED,
     PRIMARY KEY (property_id, month)

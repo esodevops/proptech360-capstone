@@ -51,4 +51,5 @@ Thumbs.db
 Desktop.ini
 
 # Local Airflow database, logs, and runtime settings
-#/airflow/
+/airflow/
+/airflows/

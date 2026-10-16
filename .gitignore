@@ -53,3 +53,12 @@ Desktop.ini
 # Local Airflow database, logs, and runtime settings
 /airflow/
 /airflows/
+
+# Terraform local state, settings, generated package, and saved plans
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+/terraform/terraform.tfvars
+/terraform/lambda.zip
+crash.log

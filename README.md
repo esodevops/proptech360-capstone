@@ -52,7 +52,7 @@ Lambda audits raw file arrivals. Spark performs the transformations locally, and
 | `data/quarantine/` | Rejected records with reasons and run identifiers. |
 | `data/curated/` | Ingestion manifest, quality summary, and monthly Parquet output. |
 | `evidence/` | Evidence organized by topic; see `evidence/README.md` for the folder index. |
-| `aws/lambda_handler.py` | Deployable Lambda handler for auditing raw S3 arrivals. |
+| `aws/lambda/lambda_handler.py` | Deployable Lambda handler for auditing raw S3 arrivals. |
 | `.env.example` | Example database configuration without real credentials. |
 | `requirements.txt` | Pinned Python dependencies. |
 
@@ -223,6 +223,10 @@ Current exports go into `evidence/04_postgres/` as `constraints.csv` and `query_
 
 ## Topic 5 — AWS serverless lake and Athena
 
+### Create the AWS resources with Terraform
+
+For a simple Infrastructure as Code deployment, follow [the Terraform guide](terraform/README.md). It uses `terraform init`, `fmt`, `validate`, `plan`, `apply`, `output`, and `destroy` to create S3, the audit Lambda and trigger, CloudWatch logs, IAM service roles, Glue, and Athena. It creates a new bucket and leaves the original manually created resources alone. Use its output bucket name for uploads and queries. The console instructions below remain useful for understanding and verifying the same services.
+
 The project's bucket is `proptech360-bucket-800557027629`. Use your own unique bucket name when reproducing this project in another account. Keep S3, Lambda, Glue, and Athena in the same AWS Region; the project console examples use Stockholm (`eu-north-1`).
 
 ### 1. Upload the datasets
@@ -240,7 +244,7 @@ Upload the local curated directory while preserving its six month folders. Uploa
 
 ### 2. Deploy Lambda and configure the trigger
 
-Deploy `aws/lambda_handler.py` to Lambda and set the runtime handler to `lambda_handler.lambda_handler`. Alternatively, paste its contents into the console file `lambda_function.py` and use `lambda_function.lambda_handler`. The file matches the code inside the notebook's `LAMBDA_HANDLER_STARTER` string.
+Deploy `aws/lambda/lambda_handler.py` to Lambda and set the runtime handler to `lambda_handler.lambda_handler`. Alternatively, paste its contents into the console file `lambda_function.py` and use `lambda_function.lambda_handler`. The file matches the code inside the notebook's `LAMBDA_HANDLER_STARTER` string.
 
 The Lambda execution role must trust `lambda.amazonaws.com` and allow:
 

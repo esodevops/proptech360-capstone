@@ -1,12 +1,13 @@
 # Simple Terraform setup for PropTech 360
 
-This folder creates the AWS part of Topic 5: a private encrypted S3 bucket, the existing audit Lambda, its S3 trigger, CloudWatch logs (seven-day retention), IAM service roles, a Glue database and crawler, and an Athena workgroup. Spark, PostgreSQL, and Airflow continue to run locally.
+This folder creates the AWS part of Topic 5: a private encrypted S3 bucket, the existing audit Lambda, its S3 trigger, CloudWatch logs (seven-day retention), IAM service roles, a Glue database and crawler, and an Athena workgroup. It also uploads local raw CSVs and curated Parquet during `terraform apply`. Spark, PostgreSQL, and Airflow continue to run locally.
 
 Everything is in plain resource blocks: no modules, workspaces, remote backend, or deployment scripts. Terraform stores its resource tracking in a local `terraform.tfstate` file. Keep that file private and backed up; do not delete it or commit it. Commit `.terraform.lock.hcl` so provider selections are reproducible.
 
 | File | Purpose |
 |---|---|
 | `main.tf` | Providers and AWS resources, in dependency order. |
+| `uploads.tf` | Upload local CSV and Parquet files, detecting content changes. |
 | `variables.tf` | Region input, defaulting to Stockholm (`eu-north-1`). |
 | `outputs.tf` | Names to use after creation. |
 | `terraform.tfvars.example` | Optional example settings. |
@@ -30,6 +31,19 @@ cd terraform
 Your deployment identity needs permission to manage S3, Lambda, CloudWatch Logs, IAM roles and policies (including `iam:PassRole`), Glue, and Athena. The created service roles do not grant your user access to run Athena queries. Your query identity also needs Athena workgroup access, Glue metadata access, read access to curated objects, and read/write access to the result prefix. Accounts using Lake Formation may require additional data permissions.
 
 Optional: copy `terraform.tfvars.example` to `terraform.tfvars` and edit the region before creating resources. Use the same region for later AWS CLI commands.
+
+## Prepare local datasets before planning
+
+The five CSV files must exist under `data/raw/`. Generate curated Parquet with the local notebook or pipeline before running Terraform. From the project root:
+
+```bash
+python -m src.ingest
+python -m src.quality
+python -m src.transform
+cd terraform
+```
+
+Terraform uploads existing files; it does not generate them. It discovers `data/raw/*.csv` and `data/curated/property_month_kpis/**/*.parquet` at plan time. An empty or missing directory contributes no upload resources. Keep files unchanged between plan and apply.
 
 ## 2. Initialize
 
@@ -72,15 +86,17 @@ terraform plan
 
 The final plan should show no changes after a successful apply. `output` shows your new resource names; `state list` shows tracked resources.
 
-## 6. Upload data and verify the pipeline
+## 6. Verify uploads and run the crawler
 
-Terraform creates infrastructure. AWS CLI commands below upload data and start the crawler. Run them from this `terraform/` directory, after the local pipeline has generated curated Parquet:
+`terraform apply` now uploads all matching CSV and Parquet files automatically. It waits for the S3 trigger before uploading raw CSVs, so Lambda audits the initial upload. Parquet keys retain their month folders. File hashes detect changes for the next apply. No separate `aws s3 cp` step is needed.
+
+Run these verification and crawler commands from this `terraform/` directory:
 
 ```bash
 export AWS_DEFAULT_REGION=eu-north-1
 BUCKET=$(terraform output -raw bucket_name)
-aws s3 cp ../data/raw/ "s3://$BUCKET/raw/" --recursive --exclude '*' --include '*.csv'
-aws s3 cp ../data/curated/property_month_kpis/ "s3://$BUCKET/curated/property_month_kpis/" --recursive --exclude '*' --include '*.parquet'
+aws s3 ls "s3://$BUCKET/raw/"
+aws s3 ls "s3://$BUCKET/curated/property_month_kpis/"
 aws s3 ls "s3://$BUCKET/audit/"
 aws glue start-crawler --name proptech360-tf-kpis
 aws glue get-crawler --name proptech360-tf-kpis --query 'Crawler.{State:State,LastCrawl:LastCrawl}'
@@ -103,7 +119,9 @@ GROUP BY month
 ORDER BY month;
 ```
 
-Expect six months with 12 properties per month. Compare monthly energy totals with PostgreSQL using the Topic 5 queries in the project README. The crawler registers partitions, so a separate `MSCK REPAIR TABLE` is normally unnecessary. Re-upload and rerun the crawler when new partitions are added. Terraform apply does not run the crawler or the local pipeline.
+Expect six months with 12 properties per month. Compare monthly energy totals with PostgreSQL using the Topic 5 queries in the project README. The crawler registers partitions, so a separate `MSCK REPAIR TABLE` is normally unnecessary. Run `terraform plan` and `terraform apply` after generating new data, then rerun the crawler when new partitions are added. Terraform apply does not run the crawler or the local pipeline.
+
+Files removed locally are planned for deletion from S3. Regenerating Spark output may replace filenames, so inspect both additions and deletions in the plan. Terraform manages only the source objects declared in `uploads.tf`; Lambda audit files and Athena results are generated separately. On first adoption of existing CLI uploads, Terraform writes those same keys and starts tracking them.
 
 ## 7. Make later infrastructure changes
 
@@ -120,7 +138,7 @@ Updating the Lambda source changes its ZIP hash, so Terraform deploys it on the 
 
 ## 8. Remove the lab when finished
 
-Save evidence and needed data first. Stop running crawls and queries. The bucket deliberately refuses deletion while it contains files. To permanently empty only this lab bucket, review its name before running the removal command:
+Save evidence and needed data first. Stop running crawls and queries. Terraform deletes the managed uploaded objects during destroy. The bucket still refuses deletion while generated audit files, Athena results, or other unmanaged files remain. To permanently empty only this lab bucket, review its name before running the removal command:
 
 ```bash
 terraform output -raw bucket_name

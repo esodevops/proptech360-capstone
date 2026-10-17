@@ -225,7 +225,7 @@ Current exports go into `evidence/04_postgres/` as `constraints.csv` and `query_
 
 ### Create the AWS resources with Terraform
 
-For a simple Infrastructure as Code deployment, follow [the Terraform guide](terraform/README.md). It uses `terraform init`, `fmt`, `validate`, `plan`, `apply`, `output`, and `destroy` to create S3, the audit Lambda and trigger, CloudWatch logs, IAM service roles, Glue, and Athena. It creates a new bucket and leaves the original manually created resources alone. Use its output bucket name for uploads and queries. The console instructions below remain useful for understanding and verifying the same services.
+For a simple Infrastructure as Code deployment, follow [the Terraform guide](terraform/README.md). It uses `terraform init`, `fmt`, `validate`, `plan`, `apply`, `output`, and `destroy` to create S3, the audit Lambda and trigger, CloudWatch logs, IAM service roles, Glue, and Athena. It also uploads local raw CSVs and curated Parquet during `terraform apply`. Generate the datasets before planning. It creates a new bucket and leaves the original manually created resources alone. Use its output bucket name for uploads and queries. The console instructions below remain useful for understanding and verifying the same services.
 
 The project's bucket is `proptech360-bucket-800557027629`. Use your own unique bucket name when reproducing this project in another account. Keep S3, Lambda, Glue, and Athena in the same AWS Region; the project console examples use Stockholm (`eu-north-1`).
 

@@ -38,3 +38,17 @@ resource "aws_s3_object" "curated" {
     aws_s3_bucket_public_access_block.lake,
   ]
 }
+
+# S3 uses key prefixes as folders. Make the result prefix visible before queries.
+resource "aws_s3_object" "athena_results_folder" {
+  bucket                 = aws_s3_bucket.lake.id
+  key                    = "athena-result/"
+  content                = ""
+  content_type           = "application/x-directory"
+  server_side_encryption = "AES256"
+
+  depends_on = [
+    aws_s3_bucket_server_side_encryption_configuration.lake,
+    aws_s3_bucket_public_access_block.lake,
+  ]
+}

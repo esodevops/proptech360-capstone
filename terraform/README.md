@@ -88,7 +88,7 @@ The final plan should show no changes after a successful apply. `output` shows y
 
 ## 6. Verify uploads and run the crawler
 
-`terraform apply` now uploads all matching CSV and Parquet files automatically. It waits for the S3 trigger before uploading raw CSVs, so Lambda audits the initial upload. Parquet keys retain their month folders. File hashes detect changes for the next apply. No separate `aws s3 cp` step is needed.
+`terraform apply` now uploads all matching CSV and Parquet files automatically. It waits for the S3 trigger before uploading raw CSVs, so Lambda audits the initial upload. Parquet keys retain their month folders. File hashes detect changes for the next apply. No separate `aws s3 cp` step is needed. Terraform also creates an empty `athena-result/` folder marker so the configured query result location is visible in S3 before the first query. Athena writes actual result files there when queries run.
 
 Run these verification and crawler commands from this `terraform/` directory:
 

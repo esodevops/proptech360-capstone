@@ -1,6 +1,6 @@
 # Simple Terraform setup for PropTech 360
 
-This folder creates the AWS part of Topic 5: a private encrypted S3 bucket, the existing audit Lambda, its S3 trigger, CloudWatch logs (seven-day retention), IAM service roles, a Glue database and crawler, and an Athena workgroup. It also uploads local raw CSVs and curated Parquet during `terraform apply`. Spark, PostgreSQL, and Airflow continue to run locally.
+This folder creates the AWS part of Topic 5: a private encrypted S3 bucket, the existing audit Lambda, its S3 trigger, CloudWatch logs (seven-day retention), IAM service roles, a Glue database and crawler, and an Athena workgroup. It also uploads only `data/raw/properties.csv` as raw data, plus curated Parquet during `terraform apply`. Spark, PostgreSQL, and Airflow continue to run locally.
 
 Everything is in plain resource blocks: no modules, workspaces, remote backend, or deployment scripts. Terraform stores its resource tracking in a local `terraform.tfstate` file. Keep that file private and backed up; do not delete it or commit it. Commit `.terraform.lock.hcl` so provider selections are reproducible.
 
@@ -43,7 +43,7 @@ python -m src.transform
 cd terraform
 ```
 
-Terraform uploads existing files; it does not generate them. It discovers `data/raw/*.csv` and `data/curated/property_month_kpis/**/*.parquet` at plan time. An empty or missing directory contributes no upload resources. Keep files unchanged between plan and apply.
+Terraform uploads existing files; it does not generate them. It uploads only `data/raw/properties.csv` to `raw/properties.csv` and discovers `data/curated/property_month_kpis/**/*.parquet` at plan time. Missing `properties.csv` causes a plan error; an empty or missing curated directory contributes no Parquet upload resources. The other four CSVs remain local inputs for the pipeline. Keep files unchanged between plan and apply.
 
 ## 2. Initialize
 
@@ -88,7 +88,7 @@ The final plan should show no changes after a successful apply. `output` shows y
 
 ## 6. Verify uploads and run the crawler
 
-`terraform apply` now uploads all matching CSV and Parquet files automatically. It waits for the S3 trigger before uploading raw CSVs, so Lambda audits the initial upload. Parquet keys retain their month folders. File hashes detect changes for the next apply. No separate `aws s3 cp` step is needed. Terraform also creates an empty `athena-result/` folder marker so the configured query result location is visible in S3 before the first query. Athena writes actual result files there when queries run.
+`terraform apply` now uploads only the raw `properties.csv` and all matching Parquet files automatically. It waits for the S3 trigger before uploading `properties.csv`, so Lambda audits the initial upload. Parquet keys retain their month folders. File hashes detect changes for the next apply. No separate `aws s3 cp` step is needed. Terraform also creates an empty `athena-result/` folder marker so the configured query result location is visible in S3 before the first query. Athena writes actual result files there when queries run.
 
 Run these verification and crawler commands from this `terraform/` directory:
 
@@ -163,3 +163,5 @@ terraform destroy
 ```
 
 Review the targeted plan: it should only change the workgroup cleanup setting. Targeting is for this recovery case, not the normal deployment workflow.
+
+If the other four raw CSVs are already tracked in Terraform state, the next plan proposes deleting their S3 objects. Review those deletions before applying. Local source CSVs and previously generated audit records are retained.

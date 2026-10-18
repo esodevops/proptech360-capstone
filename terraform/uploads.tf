@@ -6,7 +6,7 @@ locals {
 
 # Wait for the trigger before uploading so first-time uploads are audited too.
 resource "aws_s3_object" "raw" {
-  for_each = fileset(local.raw_directory, "*.csv")
+  for_each = toset(["properties.csv"])
 
   bucket                 = aws_s3_bucket.lake.id
   key                    = "raw/${each.value}"

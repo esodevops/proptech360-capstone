@@ -513,3 +513,9 @@ Starting failure email notification.
 SMTP server accepted the failure email.
 ```
 
+```sh
+AUTHOR:
+   Sulaimon Ekundayo
+   Data/Cloud Engineer | Big Data Engineer | QA Engineer
+```
+
